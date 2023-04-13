@@ -1,1 +1,1 @@
-./raw_file_used.pkl: all files
+This file is used for Social Trajectory Prediction Task.
