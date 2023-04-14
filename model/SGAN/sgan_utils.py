@@ -6,22 +6,25 @@ import torch.nn as nn
 from torch.utils.data import Dataset,DataLoader
 from clstp.utils import data_divide, search_track_pos
 
-class SGAN_net(nn.Module):
+class SGAN_encoder(nn.Module):
     def __init__(self, trial=0):
-        super(SGAN_net,self).__init__()
-        hidden_features = trial.suggest_int('hidden_features',8,256)
-        drop_rate  = trial.suggest_float('drop_rate',0,0.5,step=0.1)
-        nll_name = trial.suggest_categorical("NonLinear_layer", ["ReLU", "Sigmoid", "LeakyReLU"])
-        self.mlp_num = trial.suggest_int('mlp_num',0,5)
+        super(SGAN_encoder,self).__init__()
+        
+        embdding_size = 64
+        hidden_size = 256
 
-        self.linear = nn.Linear(8,hidden_features)
-        self.nll = getattr(nn,nll_name)()
-        self.mlp = nn.Linear(hidden_features,hidden_features)
-        self.drop = nn.Dropout(drop_rate)
-        self.fc = nn.Linear(hidden_features,12)
+        self.embdding = nn.Linear(in_features=2,out_features=embdding_size)
+        self.lstm = nn.LSTM(
+            input_size = embdding_size,
+            hidden_size = hidden_size,
+            num_layers = 1,
+            batch_first = True, # (batch, seq, feature)
+            dropout = 0.1)
+
+        
     
-    def forward(self,input_seq):
-        x = self.linear(input_seq)
+    def forward(self,input_batch):
+        x = self.linear(input_batch)
         x = self.nll(x)
         for _ in range(self.mlp_num):
             x = self.mlp(x)
@@ -97,7 +100,7 @@ def SGAN_obj(trial):
 
     train_validation_idx = data_divide(train_valid_array,para=data_div_para)
 
-    net = SGAN_net(trial)
+    net = SGAN_encoder(trial)
     optimizer = getattr(torch.optim, optimizer_name)(net.parameters(), lr=lr)
     criterion = nn.MSELoss()
 
