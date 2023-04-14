@@ -18,7 +18,7 @@ class SGAN_encoder(nn.Module):
             input_size = embdding_size,
             hidden_size = hidden_size,
             num_layers = 1,
-            batch_first = True, # (batch, seq, feature)
+            # batch_first = True, # (batch, seq, feature)
             dropout = 0.1)
 
         
