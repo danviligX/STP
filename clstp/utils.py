@@ -119,15 +119,47 @@ def search_track_pos(meta_item,set_file):
         set_file: frame_info.pkl
     output: shape(2,end_fidx-start_fidx)
     '''
-    pidx = meta_item[1]
-    start_fidx = meta_item[2]
-    end_fidx = meta_item[3]
-    frame_range = range(start_fidx,end_fidx)
-    track = np.zeros([len(frame_range),2]).astype(np.float32)
-    for idx,frame_idx in enumerate(frame_range):
-        frame_info = set_file[frame_idx]
-        local_idx = np.argwhere(frame_info[:,0]==pidx).item()
-        pos = frame_info[local_idx,1:]
-        track[idx,:] = pos
+    seq_length = meta_item[3] - meta_item[2]
 
-    return track
+    # the center pedestrain track
+    # track = np.zeros([seq_length,2]).astype(np.float32)
+
+    # the neighbor pedestrain track
+    pidx_unique_array,frame_info_RLT = get_PidxUnique_FrameRLT(meta_item,set_file)
+    pidx_track = np.ones([seq_length,2,pidx_unique_array.shape[0]]).astype(np.float32)
+    # initializetion, -1 represent they are not in the scene
+    pidx_track = -pidx_track
+
+    for idx in range(seq_length):
+        frame_info = frame_info_RLT[idx]
+        local_idx = np.argwhere(frame_info[:,0]==pidx_unique_array[:,None])[:,-1]
+        pidx_track[idx,:,local_idx] = frame_info[:,1:]
+
+    return pidx_track
+
+def get_PidxUnique_FrameRLT(meta_item,set_file):
+    '''
+    input:
+        meta_item: [set_code,pidx,start_fidx,end_fidx] a item of meta_info
+        set_file: frame_info.pkl
+    output:
+        pidx_list
+        frame_info_RLT: replace the position by releative position
+    '''
+    pidx = meta_item[1]
+    frame_range = range(meta_item[2],meta_item[3])
+    pidx_unique_array = []
+    frame_info_RLT = []
+    for _,frame_idx in enumerate(frame_range):
+        frame_info = set_file[frame_idx]
+        pidx_in_frame = frame_info[:,0]
+        pidx_unique_array = np.unique(np.concatenate((pidx_in_frame,pidx_unique_array)))
+        
+        # transform the abs position into rel position
+        local_idx = np.argwhere(frame_info[:,0]==pidx).item()
+        pos_center = frame_info[local_idx,1:]
+        frame_info[:,1:] = frame_info[:,1:] - pos_center
+
+        frame_info_RLT.append(frame_info)
+
+    return pidx_unique_array, frame_info_RLT
