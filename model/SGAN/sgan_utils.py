@@ -24,14 +24,8 @@ class SGAN_encoder(nn.Module):
         
     
     def forward(self,input_batch):
-        x = self.linear(input_batch)
-        x = self.nll(x)
-        for _ in range(self.mlp_num):
-            x = self.mlp(x)
-            x = self.nll(x)
-            
-        x = self.drop(x)
-        out = self.fc(x)
+        x = self.embdding(input_batch)
+        out = self.lstm(x)
         return out
 
 class SGAN_dataset(Dataset):
