@@ -12,49 +12,51 @@ class SGAN_encoder(nn.Module):
         
         embdding_size = 64
         hidden_size = 256
+        self.ifgru = 1
 
         self.embdding = nn.Linear(in_features=2,out_features=embdding_size)
-        self.lstm = nn.LSTM(
-            input_size = embdding_size,
-            hidden_size = hidden_size,
-            num_layers = 1)
+
+        if self.ifgru:
+            self.rnn = nn.GRU(input_size = embdding_size,hidden_size = hidden_size,num_layers = 1)
+        else:
+            self.rnn = nn.LSTM(input_size = embdding_size,hidden_size = hidden_size,num_layers = 1)
         
     def forward(self,input_batch):
         x = self.embdding(input_batch)
-        hidden_out, cell_out = self.lstm(x)
+
+        if self.ifgru:
+            _,hidden_out = self.rnn(x)
+        else:
+            _,hidden_out,_ = self.rnn(x)
+        
         return hidden_out
 
+class SGAN_SocialPooling(nn.Module):
+    def __init__(self, trial=0) -> None:
+        super(SGAN_SocialPooling,self).__init__()
+        pass
+    def forward(self):
+        return 1
+
+class SGAN_decoder(nn.Module):
+    def __init__(self, trial=0) -> None:
+        super(SGAN_decoder,self).__init__()
+        pass
+    def forward(self):
+        return 1
+
+class SGAN_discriminator(nn.Module):
+    def __init__(self, trial=0) -> None:
+        super().__init__()
+    def forward(self):
+        return 1
+    
 class SGAN_dataset(Dataset):
     def __init__(self,item_idx) -> None:
         super().__init__()
-        set_folder_path = './data/set/'
-        history_len = 8
-
-        meta_info = np.load('./data/meta/meta_info.npy')
-        with open('./data/meta/data_name_list.pkl','rb') as path:
-            data_name_list = pickle.load(path)
-            path.close()
-        
-        set_file = []
-        for i in range(len(data_name_list)):
-            data_name = data_name_list[i]
-            with open("".join([set_folder_path,data_name,'.pkl']),'rb') as path:
-                file = pickle.load(path)
-                path.close()
-            set_file.append(file)
-        
-        self.item = []
-        for index in item_idx:
-            meta_item = meta_info[index]
-            track = search_group_track_pos(meta_item,set_file[meta_item[0]])
-
-            track_x = track[:history_len,:,:]
-            track_y = track[history_len:,:,:]
-            self.item.append((track_x,track_y,meta_item[0].item()))
-    
+        self.item = item_idx
     def __getitem__(self, index):
         return self.item[index]
-    
     def __len__(self):
         return len(self.item)
 
@@ -82,7 +84,7 @@ def SGAN_obj(trial):
     optimizer_name = trial.suggest_categorical("optimizer", ["RMSprop", "SGD", "Adam"])
     lr = trial.suggest_float("lr", 1e-5, 1e-1, log=True)
     batch_size = trial.suggest_int("batch_size", 8, 256,step=8)
-    EPOCHS = trial.suggest_int("EPOCHS",5,30)
+    EPOCHS = trial.suggest_int("EPOCHS",1,10)
 
     # [train_set,validation_set,test_set]
     train_valid_array = np.load('./data/meta/train_valid.npy')
@@ -90,8 +92,11 @@ def SGAN_obj(trial):
 
     train_validation_idx = data_divide(train_valid_array,para=data_div_para)
 
-    net = SGAN_encoder(trial)
-    optimizer = getattr(torch.optim, optimizer_name)(net.parameters(), lr=lr)
+    Encoder = SGAN_encoder(trial)
+    SocialPooling = SGAN_SocialPooling(trial)
+    Decoder = SGAN_decoder(trial)
+
+    optimizer = getattr(torch.optim, optimizer_name)(Encoder.parameters(), lr=lr)
     criterion = nn.MSELoss()
 
     if data_div_method=='CV':
@@ -106,10 +111,10 @@ def SGAN_obj(trial):
             valid_error = torch.tensor([])
             for _ in range(EPOCHS):
                 # train
-                net = train(net=net,train_loader=train_loader,criterion=criterion,
+                Encoder = train(net=Encoder,train_loader=train_loader,criterion=criterion,
                       optimizer=optimizer,batch_size=batch_size)
                 # validation
-                epoch_error,_ = valid(net,valid_loader,criterion)
+                epoch_error,_ = valid(Encoder,valid_loader,criterion)
 
                 valid_error = torch.concat((valid_error,epoch_error))
             valid_error = torch.tensor([valid_error.mean()])
@@ -123,7 +128,7 @@ def SGAN_obj(trial):
 
         optuna_error = optuna_error.mean()
 
-    torch.save(net.state_dict(),'./model/LinearDMS/trial/trial_{}.model'.format(trial.number))
+    torch.save(Encoder.state_dict(),'./model/LinearDMS/trial/trial_{}.model'.format(trial.number))
     return optuna_error
 
 def train(net,train_loader,criterion,optimizer,batch_size):
@@ -180,3 +185,6 @@ def SGAN_test(net,test_loader,criterion):
     table[set_code_num,2] = error[:,1].std()
 
     return table
+
+def seq_encode(encoder,item_idx):
+    pass

@@ -150,7 +150,6 @@ def search_group_track_pos(meta_item,set_file):
 
     for idx in range(seq_length):
         frame_info = frame_info_RLT[idx]
-        # local_idx = np.argwhere(frame_info[:,0]==pidx_unique_array[:,None])[:,-1]
         local_idx = np.argwhere(pidx_unique_array==frame_info[:,0][:,None])[:,-1]
         pidx_track[idx,local_idx,:] = frame_info[:,1:]
 
