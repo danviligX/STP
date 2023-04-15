@@ -4,7 +4,7 @@ import optuna
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset,DataLoader
-from clstp.utils import data_divide, search_track_pos
+from clstp.utils import data_divide, search_group_track_pos
 
 class SGAN_encoder(nn.Module):
     def __init__(self, trial=0):
@@ -17,16 +17,12 @@ class SGAN_encoder(nn.Module):
         self.lstm = nn.LSTM(
             input_size = embdding_size,
             hidden_size = hidden_size,
-            num_layers = 1,
-            # batch_first = True, # (batch, seq, feature)
-            dropout = 0.1)
-
+            num_layers = 1)
         
-    
     def forward(self,input_batch):
         x = self.embdding(input_batch)
-        out = self.lstm(x)
-        return out
+        hidden_out, cell_out = self.lstm(x)
+        return hidden_out
 
 class SGAN_dataset(Dataset):
     def __init__(self,item_idx) -> None:
@@ -50,10 +46,10 @@ class SGAN_dataset(Dataset):
         self.item = []
         for index in item_idx:
             meta_item = meta_info[index]
-            track = search_track_pos(meta_item,set_file[meta_item[0]])
+            track = search_group_track_pos(meta_item,set_file[meta_item[0]])
 
-            track_x = track[:history_len].transpose()
-            track_y = track[history_len:].transpose()
+            track_x = track[:history_len,:,:]
+            track_y = track[history_len:,:,:]
             self.item.append((track_x,track_y,meta_item[0].item()))
     
     def __getitem__(self, index):
