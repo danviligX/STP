@@ -3,6 +3,7 @@ import os
 import sys
 
 import numpy as np
+import pickle
 
 
 def generate_set_info(raw_file_path):
@@ -136,3 +137,21 @@ def hould_out(item_index_array,rate = 0.1):
     valid_set = item_index_array[:valid_split_num].astype(np.uint32)
     train_set = item_index_array[valid_split_num+1:].astype(np.uint32)
     return [train_set,valid_set]
+
+def read_set_file(set_folder_path = './data/set/',
+                  set_name_list_path = './data/meta/data_name_list.pkl',
+                  ):
+
+    with open(set_name_list_path,'rb') as path:
+        data_name_list = pickle.load(path)
+        path.close()
+    
+    set_file_list = []
+    for i in range(len(data_name_list)):
+        data_name = data_name_list[i]
+        with open("".join([set_folder_path,data_name,'.pkl']),'rb') as path:
+            file = pickle.load(path)
+            path.close()
+        set_file_list.append(file)
+
+    return set_file_list

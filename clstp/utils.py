@@ -3,6 +3,7 @@ import pickle
 import sys
 
 import numpy as np
+import torch.nn as nn
 
 from clstp.dataio import (boot_strapping, cross_validation, generate_meta_info,
                           generate_set_info, hould_out)
@@ -144,16 +145,17 @@ def search_group_track_pos(meta_item,set_file):
     # the neighbor pedestrain track
     pidx_unique_array,frame_info_RLT = get_PidxUnique_FrameRLT(meta_item,set_file)
 
-    # initializetion, 8 is far enough that if one is not in the scence
-    pidx_track = np.ones([seq_length,pidx_unique_array.shape[0],2]).astype(np.float32)
-    pidx_track = 8*pidx_track
+    # initializetion, 16 is far enough that if one is not in the scence
+    track = np.ones([seq_length,pidx_unique_array.shape[0],2]).astype(np.float32)
+    track = 16*track
 
     for idx in range(seq_length):
         frame_info = frame_info_RLT[idx]
         local_idx = np.argwhere(pidx_unique_array==frame_info[:,0][:,None])[:,-1]
-        pidx_track[idx,local_idx,:] = frame_info[:,1:]
-
-    return pidx_track,pidx_unique_array
+        track[idx,local_idx,:] = frame_info[:,1:]
+    
+    center_pidx_local = np.argwhere(pidx_unique_array==meta_item[1]).item()
+    return track,pidx_unique_array,center_pidx_local
 
 def get_PidxUnique_FrameRLT(meta_item,set_file):
     '''
@@ -170,13 +172,20 @@ def get_PidxUnique_FrameRLT(meta_item,set_file):
     for _,frame_idx in enumerate(frame_range):
         frame_info = set_file[frame_idx]
         pidx_unique_array = np.unique(np.concatenate((frame_info[:,0],pidx_unique_array)))
-        
-        # transform the abs position into rel position
-        # local_idx = np.argwhere(frame_info[:,0]==pidx).item()
-        # pos_center = frame_info[local_idx,1:]
-        # frame_info[:,1:] = frame_info[:,1:] - pos_center
-        # frame_info[local_idx,1:] = pos_center
-
         frame_info_RLT.append(frame_info)
 
     return pidx_unique_array, frame_info_RLT
+
+def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):
+    layers = []
+    for dim_in, dim_out in zip(dim_list[:-1], dim_list[1:]):
+        layers.append(nn.Linear(dim_in, dim_out))
+        if batch_norm:
+            layers.append(nn.BatchNorm1d(dim_out))
+        if activation == 'relu':
+            layers.append(nn.ReLU())
+        elif activation == 'leakyrelu':
+            layers.append(nn.LeakyReLU())
+        if dropout > 0:
+            layers.append(nn.Dropout(p=dropout))
+    return nn.Sequential(*layers)

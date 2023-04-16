@@ -4,9 +4,15 @@ import optuna
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset,DataLoader
-from clstp.utils import data_divide, search_group_track_pos
+from clstp.utils import data_divide, search_group_track_pos, make_mlp
 
 class SGAN_encoder(nn.Module):
+    '''
+    input:
+        history_track:
+    output:
+        hidden_state: encoded sequences
+    '''
     def __init__(self, trial=0):
         super(SGAN_encoder,self).__init__()
         
@@ -25,20 +31,46 @@ class SGAN_encoder(nn.Module):
         x = self.embdding(input_batch)
 
         if self.ifgru:
-            _,hidden_out = self.rnn(x)
+            _,out = self.rnn(x)
+            return out
         else:
-            _,hidden_out,_ = self.rnn(x)
-        
-        return hidden_out
+            _,out = self.rnn(x)
+            return out[0]
 
 class SGAN_SocialPooling(nn.Module):
+    '''
+    input: 
+        group_track: encoded track
+        pidx_list: pidx vector
+        center_pidx_local: local index in pidx_list of cneter pedestrain
+    output:
+        center_hidden_state: for decoder to generate a sequence
+    '''
     def __init__(self, trial=0) -> None:
         super(SGAN_SocialPooling,self).__init__()
-        pass
-    def forward(self):
-        return 1
+        self.hidden_size = 256
+
+        self.embdding_layer = nn.Linear(in_features=2,out_features=self.hidden_size)
+        dim_list = [2*self.hidden_size,2*self.hidden_size,2*self.hidden_size]
+        self.mlp = make_mlp(dim_list)
+        
+    def forward(self,hidden_state,group_track,pidx_list,center_pidx_local):
+        center_pos_track_temp = np.expand_dims(group_track[:,center_pidx_local,:],1).repeat(len(pidx_list),axis=1)
+        real_pos_track = group_track - center_pos_track_temp
+        
+        real_pos_track_embdding = self.embdding_layer(torch.from_numpy(real_pos_track[-1,:,:]))
+        mlp_input = torch.cat([hidden_state[0],real_pos_track_embdding],dim=1)
+        out = self.mlp(mlp_input)
+
+        return out.max(0)[0]
 
 class SGAN_decoder(nn.Module):
+    '''
+    input:
+        center_hidden_state:
+    output:
+        predic_track:
+    '''
     def __init__(self, trial=0) -> None:
         super(SGAN_decoder,self).__init__()
         pass
