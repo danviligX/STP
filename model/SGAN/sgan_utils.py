@@ -4,10 +4,11 @@ import optuna
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset,DataLoader
-from clstp.utils import data_divide, search_group_track_pos, make_mlp
+from clstp.utils import data_divide, make_mlp
 
 class SGAN_encoder(nn.Module):
     '''
+    single core
     input:
         history_track:
     output:
@@ -37,8 +38,9 @@ class SGAN_encoder(nn.Module):
             _,out = self.rnn(x)
             return out[0]
 
-class SGAN_SocialPooling(nn.Module):
+class SGAN_PoolingNet(nn.Module):
     '''
+    single core
     input: 
         group_track: encoded track
         pidx_list: pidx vector
@@ -47,7 +49,7 @@ class SGAN_SocialPooling(nn.Module):
         center_hidden_state: for decoder to generate a sequence
     '''
     def __init__(self, trial=0) -> None:
-        super(SGAN_SocialPooling,self).__init__()
+        super(SGAN_PoolingNet,self).__init__()
         self.hidden_size = 256
 
         self.embdding_layer = nn.Linear(in_features=2,out_features=self.hidden_size)
@@ -68,6 +70,9 @@ class SGAN_decoder(nn.Module):
     '''
     input:
         center_hidden_state:
+        pooling_tyep: SocialPooling(Social-LSTM), PoolingNet(Social-GAN)
+        pidx_list:
+        center_pidx_local:
     output:
         predic_track:
     '''
@@ -125,7 +130,7 @@ def SGAN_obj(trial):
     train_validation_idx = data_divide(train_valid_array,para=data_div_para)
 
     Encoder = SGAN_encoder(trial)
-    SocialPooling = SGAN_SocialPooling(trial)
+    SocialPooling = SGAN_PoolingNet(trial)
     Decoder = SGAN_decoder(trial)
 
     optimizer = getattr(torch.optim, optimizer_name)(Encoder.parameters(), lr=lr)
