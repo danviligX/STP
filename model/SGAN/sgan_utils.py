@@ -18,7 +18,7 @@ class SGAN_encoder(nn.Module):
         super(SGAN_encoder,self).__init__()
         
         embdding_size = 64
-        hidden_size = 256
+        hidden_size = 2
         self.ifgru = 1
 
         self.embdding = nn.Linear(in_features=2,out_features=embdding_size)
@@ -50,18 +50,22 @@ class SGAN_PoolingNet(nn.Module):
     '''
     def __init__(self, trial=0) -> None:
         super(SGAN_PoolingNet,self).__init__()
-        self.hidden_size = 256
+        self.hidden_size = 2
 
         self.embdding_layer = nn.Linear(in_features=2,out_features=self.hidden_size)
         dim_list = [2*self.hidden_size,2*self.hidden_size,2*self.hidden_size]
         self.mlp = make_mlp(dim_list)
         
-    def forward(self,hidden_state,group_track,pidx_list,center_pidx_local):
-        center_pos_track_temp = np.expand_dims(group_track[:,center_pidx_local,:],1).repeat(len(pidx_list),axis=1)
-        real_pos_track = group_track - center_pos_track_temp
+    def forward(self,hidden_state,group_track):
+        center_pos_end = group_track[0][-1]
+        rel_nei_end_pos = []
+        for track in group_track:
+            rel_end_pos = torch.from_numpy(track[-1] - center_pos_end)
+            rel_nei_end_pos.append(rel_end_pos)
+        REP = torch.stack(rel_nei_end_pos,dim=0)
         
-        real_pos_track_embdding = self.embdding_layer(torch.from_numpy(real_pos_track[-1,:,:]))
-        mlp_input = torch.cat([hidden_state[0],real_pos_track_embdding],dim=1)
+        real_pos_track_embdding = self.embdding_layer(REP)
+        mlp_input = torch.concatenate((hidden_state,real_pos_track_embdding),dim=2)
         out = self.mlp(mlp_input)
 
         return out.max(0)[0]

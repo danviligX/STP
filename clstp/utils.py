@@ -125,13 +125,22 @@ def search_track_pos(meta_item,set_file):
     end_fidx = meta_item[3]
     frame_range = range(start_fidx,end_fidx)
     track = np.zeros([len(frame_range),2]).astype(np.float32)
+    start_idx_local = 0
     for idx,frame_idx in enumerate(frame_range):
         frame_info = set_file[frame_idx]
-        local_idx = np.argwhere(frame_info[:,0]==pidx).item()
-        pos = frame_info[local_idx,1:]
-        track[idx,:] = pos
+        local_idx = np.argwhere(frame_info[:,0]==pidx)
+        if local_idx.size == 0:
+            start_idx_local = 0
+            continue
+        else:
+            pos = frame_info[local_idx,1:]
+            track[idx,:] = pos
+            if start_idx_local == 0:
+                start_idx_local = idx
 
-    return track
+    pidx_neighbor_array = np.delete(frame_info[:,0],local_idx,axis=0)
+    track = np.delete(track,np.arange(start_idx_local),axis=0)
+    return track,pidx_neighbor_array
 
 def search_group_track_pos(meta_item,set_file):
     '''
