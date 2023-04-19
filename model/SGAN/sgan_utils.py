@@ -4,7 +4,7 @@ import optuna
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset,DataLoader
-from clstp.utils import data_divide, make_mlp
+from clstp.utils import data_divide, make_mlp, search_group_track_pos
 
 class SGAN_encoder(nn.Module):
     '''
@@ -18,7 +18,7 @@ class SGAN_encoder(nn.Module):
         super(SGAN_encoder,self).__init__()
         
         embdding_size = 64
-        hidden_size = 2
+        hidden_size = 256
         self.ifgru = 1
 
         self.embdding = nn.Linear(in_features=2,out_features=embdding_size)
@@ -50,14 +50,14 @@ class SGAN_PoolingNet(nn.Module):
     '''
     def __init__(self, trial=0) -> None:
         super(SGAN_PoolingNet,self).__init__()
-        self.hidden_size = 2
+        self.hidden_size = 256
 
         self.embdding_layer = nn.Linear(in_features=2,out_features=self.hidden_size)
         dim_list = [2*self.hidden_size,2*self.hidden_size,2*self.hidden_size]
         self.mlp = make_mlp(dim_list)
-        
-    def forward(self,hidden_state,group_track):
-        center_pos_end = group_track[0][-1]
+    
+    def pooling_one(self,hidden_state,group_track,center_idx_local):
+        center_pos_end = group_track[center_idx_local][-1]
         rel_nei_end_pos = []
         for track in group_track:
             rel_end_pos = torch.from_numpy(track[-1] - center_pos_end)
@@ -65,10 +65,34 @@ class SGAN_PoolingNet(nn.Module):
         REP = torch.stack(rel_nei_end_pos,dim=0)
         
         real_pos_track_embdding = self.embdding_layer(REP)
-        mlp_input = torch.concatenate((hidden_state,real_pos_track_embdding),dim=2)
+        real_pos_track_embdding = torch.unsqueeze(real_pos_track_embdding,dim=0)
+        mlp_input = torch.concatenate((hidden_state,real_pos_track_embdding),dim=2)[0]
         out = self.mlp(mlp_input)
+        return out
+    
+    def forward(self,hidden_state,group_track):
+        group_pooling_hidden = []
+        for center_idx_local in range(len(group_track)):
+            pooling_hidden = self.pooling_one(hidden_state,group_track,center_idx_local)
+            group_pooling_hidden.append(pooling_hidden)
+        GPH = torch.stack(group_pooling_hidden,dim=0)
 
-        return out.max(0)[0]
+        return GPH
+    
+    
+
+class SLSTM_SPooling(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+    def forward(self,hidden_state,group_track,state_tuple):
+        if self.ifgru:
+            _,state_tuple = self.rnn(hidden_state)
+            decoder_h = state_tuple
+        else:
+            _,state_tuple = self.rnn(hidden_state)
+            decoder_h = state_tuple[0]
+        
+        return 1
 
 class SGAN_decoder(nn.Module):
     '''
@@ -82,8 +106,42 @@ class SGAN_decoder(nn.Module):
     '''
     def __init__(self, trial=0) -> None:
         super(SGAN_decoder,self).__init__()
+        hidden_size = 256
+        embdding_size = 512
+        self.ifgru = 1
+
+        if self.ifgru:
+            self.rnn = nn.GRU(input_size = embdding_size,hidden_size = hidden_size,num_layers = 1)
+        else:
+            self.rnn = nn.LSTM(input_size = embdding_size,hidden_size = hidden_size,num_layers = 1)
         pass
     def forward(self):
+        return 1
+
+class SGAN_generator(nn.Module):
+    def __init__(self,Encoder,SPooling,Decoder) -> None:
+        super(self,trial=0).__init__()
+        self.encoder = Encoder
+        self.SPoolingNet = SPooling
+        self.decoder = Decoder
+
+    def forward(self,meta_item,set_file):
+        # gain the track in the scene of last frame
+        group_track = search_group_track_pos(meta_item,set_file)
+
+        # encoder the track
+        TE = []
+        for track in group_track:
+            track_embdding = self.encoder(torch.from_numpy(track))
+            TE.append(track_embdding)            
+        hidden_state = torch.stack(TE,dim=1)
+
+        # Social Pooling
+        group_pooling_hidden = self.SPoolingNet(hidden_state,group_track)
+
+        # decode
+
+
         return 1
 
 class SGAN_discriminator(nn.Module):
@@ -226,6 +284,3 @@ def SGAN_test(net,test_loader,criterion):
     table[set_code_num,2] = error[:,1].std()
 
     return table
-
-def seq_encode(encoder,item_idx):
-    pass

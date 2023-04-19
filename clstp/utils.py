@@ -113,14 +113,16 @@ def meta_generator(raw_folder_path,raw_file_name_list):
 
     return meta_info,fid_unique_list
 
-def search_track_pos(meta_item,set_file):
+def search_track_pos(meta_item,set_file,search_pidx):
     '''
     input:
         meta_item: [set_code,pidx,start_fidx,end_fidx] a item of meta_info
         set_file: frame_info.pkl
-    output: shape(2,end_fidx-start_fidx)
+    output: 
+        track: array, shape(2,end_fidx-start_fidx)
+        pidx_neighbot_array: list of neighbor pidx
     '''
-    pidx = meta_item[1]
+    pidx = search_pidx
     start_fidx = meta_item[2]
     end_fidx = meta_item[3]
     frame_range = range(start_fidx,end_fidx)
@@ -147,43 +149,16 @@ def search_group_track_pos(meta_item,set_file):
     input:
         meta_item: [set_code,pidx,start_fidx,end_fidx] a item of meta_info
         set_file: frame_info.pkl
-    output: shape(end_fidx-start_fidx,len(pidx),2)
-    '''
-    seq_length = meta_item[3] - meta_item[2]
-
-    # the neighbor pedestrain track
-    pidx_unique_array,frame_info_RLT = get_PidxUnique_FrameRLT(meta_item,set_file)
-
-    # initializetion, 16 is far enough that if one is not in the scence
-    track = np.ones([seq_length,pidx_unique_array.shape[0],2]).astype(np.float32)
-    track = 16*track
-
-    for idx in range(seq_length):
-        frame_info = frame_info_RLT[idx]
-        local_idx = np.argwhere(pidx_unique_array==frame_info[:,0][:,None])[:,-1]
-        track[idx,local_idx,:] = frame_info[:,1:]
-    
-    center_pidx_local = np.argwhere(pidx_unique_array==meta_item[1]).item()
-    return track,pidx_unique_array,center_pidx_local
-
-def get_PidxUnique_FrameRLT(meta_item,set_file):
-    '''
-    input:
-        meta_item: [set_code,pidx,start_fidx,end_fidx] a item of meta_info
-        set_file: frame_info.pkl
     output:
-        pidx_list
-        frame_info_RLT: replace the position by releative position
+        group_track: a list of track in the last frame of the scene, the first one is the center pidx's track
     '''
-    frame_range = range(meta_item[2],meta_item[3])
-    pidx_unique_array = []
-    frame_info_RLT = []
-    for _,frame_idx in enumerate(frame_range):
-        frame_info = set_file[frame_idx]
-        pidx_unique_array = np.unique(np.concatenate((frame_info[:,0],pidx_unique_array)))
-        frame_info_RLT.append(frame_info)
+    group_track,pidx_neighbor_array = search_track_pos(meta_item,set_file,meta_item[1])
+    group_track = [group_track]
+    for pidx in pidx_neighbor_array:
+        track,_ = search_track_pos(meta_item,set_file,pidx)
+        group_track.append(track)
 
-    return pidx_unique_array, frame_info_RLT
+    return group_track
 
 def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):
     layers = []
