@@ -122,7 +122,7 @@ def cross_validation(item_index_array,k=10):
     return train_valid_set
 
 def boot_strapping(item_index_array,num=[2000,20]):
-    train_num=num[0]
+    train_num = num[0]
     validation_num=num[1]
     train_set = np.random.choice(item_index_array,size=train_num,replace=True).astype(np.uint32)
     valid_set = np.random.choice(item_index_array,size=validation_num,replace=True).astype(np.uint32)

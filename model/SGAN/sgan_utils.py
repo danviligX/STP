@@ -12,57 +12,67 @@ class SGAN_encoder(nn.Module):
     input:
         history_track:
     output:
-        hidden_state: encoded sequences
+        hidden_state: encoded sequences, size=[1,batch,hidden_size]
+        cell_state: if use LSTM, size=[1,batch,hidden_size]
     '''
     def __init__(self, trial=0):
         super(SGAN_encoder,self).__init__()
         
-        embdding_size = 64
-        hidden_size = 256
+        self.embadding_size = 64
+        self.hidden_size = 256
         self.ifgru = 1
 
-        self.embdding = nn.Linear(in_features=2,out_features=embdding_size)
+        self.embadding = nn.Linear(in_features=2,out_features=self.embadding_size)
 
         if self.ifgru:
-            self.rnn = nn.GRU(input_size = embdding_size,hidden_size = hidden_size,num_layers = 1)
+            self.rnn = nn.GRU(input_size = self.embadding_size,hidden_size = self.hidden_size,num_layers = 1)
         else:
-            self.rnn = nn.LSTM(input_size = embdding_size,hidden_size = hidden_size,num_layers = 1)
+            self.rnn = nn.LSTM(input_size = self.embadding_size,hidden_size = self.hidden_size,num_layers = 1)
 
     def encode(self,input_batch):
-        x = self.embdding(input_batch)
+        x = self.embadding(input_batch)
 
         if self.ifgru:
-            _,out = self.rnn(x)
-            return out
+            _,state_tuple = self.rnn(x)
+            return state_tuple
         else:
-            _,out = self.rnn(x)
-            return out[0]
+            _,state_tuple = self.rnn(x)
+            return state_tuple
 
     def forward(self,group_track):
-        TE = []
-        for track in group_track:
-            track_embdding = self.encode(torch.from_numpy(track))
-            TE.append(track_embdding)            
-        hidden_state = torch.stack(TE,dim=1)
+        HS = []
+        if self.ifgru:
+            for track in group_track:
+                track_code = self.encode(torch.from_numpy(track))
+                HS.append(track_code)
+            hidden_state = torch.stack(HS,dim=1)
+            return hidden_state
+        else:
+            CS = []
+            for track in group_track:
+                track_code = self.encode(torch.from_numpy(track))
+                HS.append(track_code[0])
+                CS.append(track_code[1])
+            hidden_state = torch.stack(HS,dim=1)
+            cell_state = torch.stack(CS,dim=1)
 
-        return hidden_state
+            return hidden_state,cell_state
 
 class SGAN_PoolingNet(nn.Module):
     '''
     single core
     input: 
         group_track: encoded track
-        pidx_list: pidx vector
-        center_pidx_local: local index in pidx_list of cneter pedestrain
+        hidden_state: size=[1,batch,hidden_size]
     output:
-        center_hidden_state: for decoder to generate a sequence
+        hidden_state_after_group_pooling: for decoder to generate a sequence, size=[1,batch,hidden_size]
     '''
-    def __init__(self, trial=0) -> None:
+    def __init__(self, encoder, trial=0) -> None:
         super(SGAN_PoolingNet,self).__init__()
-        self.hidden_size = 256
+        self.hidden_size = encoder.hidden_size
+        self.embdding_layer = encoder.embadding
 
-        self.embdding_layer = nn.Linear(in_features=2,out_features=self.hidden_size)
-        dim_list = [2*self.hidden_size,2*self.hidden_size,self.hidden_size]
+        dim_list = [encoder.embadding_size+self.hidden_size,2*self.hidden_size,self.hidden_size]
         self.mlp = make_mlp(dim_list)
     
     def pooling_one(self,hidden_state,group_track,center_idx_local):
@@ -112,33 +122,65 @@ class SGAN_decoder(nn.Module):
     output:
         predic_track:
     '''
-    def __init__(self, SPoolingNet,trial=0) -> None:
+    def __init__(self, encoder, SPoolingNet, trial=0) -> None:
         super(SGAN_decoder,self).__init__()
-        hidden_size = 256
-        embdding_size = 512
-        self.ifgru = 1
+        hidden_size = encoder.hidden_size
+        embadding_size = encoder.embadding_size
+        self.ifgru = encoder.ifgru
         self.spooling = SPoolingNet
         self.predict_length = 12
+        self.embadding = encoder.embadding
+        self.pooling_p_step = 1
 
         if self.ifgru:
-            self.decode = nn.GRU(input_size = embdding_size,hidden_size = hidden_size,num_layers = 1)
+            self.decode = nn.GRU(input_size = embadding_size,hidden_size = hidden_size,num_layers = 1)
         else:
-            self.decode = nn.LSTM(input_size = embdding_size,hidden_size = hidden_size,num_layers = 1)
+            self.decode = nn.LSTM(input_size = embadding_size,hidden_size = hidden_size,num_layers = 1)
         pass
+
+        self.hidden2pos = nn.Linear(in_features=hidden_size,out_features=2)
+
     def forward(self,hidden_state,group_track):
-        hidden_state = self.spooling(hidden_state,group_track)
-        output,state_tuple = self.decode(hidden_state)
+        group_pooling_hidden = self.spooling(hidden_state,group_track)
+        pos = self.hidden2pos(group_pooling_hidden)
+
+        GTN = [] # group track new
+        for idx,track in enumerate(group_track):
+            GTN.append(np.r_[track,np.array(torch.detach(pos[0][idx].unsqueeze(0)))])
+        group_track = GTN
+
+        pos_embadding = self.embadding(pos)
+        output,state_tuple = self.decode(pos_embadding)
 
         for _ in range(self.predict_length):
-            output,state_tuple = self.decode(hidden_state,state_tuple)
+            # socail pooling
+            if self.pooling_p_step:
+                group_pooling_hidden = self.spooling(output,group_track)
+            else:
+                group_pooling_hidden = state_tuple
 
-        return 1
+            pos = self.hidden2pos(group_pooling_hidden)
+
+            # update group track
+            GTN = [] # group track new
+            for idx,track in enumerate(group_track):
+                GTN.append(np.r_[track,np.array(torch.detach(pos[0][idx].unsqueeze(0)))])
+            group_track = GTN
+
+            # position embadding for prediction
+            pos_embadding = self.embadding(pos)
+            
+            # rnn operation
+            output,state_tuple = self.decode(pos_embadding,state_tuple)
+
+        return group_track
 
 class SGAN_generator(nn.Module):
     def __init__(self,Encoder,SPoolingNet,Decoder,trial=0) -> None:
         super(SGAN_generator,self).__init__()
         self.encoder = Encoder
         self.SPoolingNet = SPoolingNet
+        # self.decoder = nn.Linear(in_features=self.encoder.hidden_size,out_features=2)
         self.decoder = Decoder
 
     def forward(self,meta_item,set_file):
@@ -146,15 +188,15 @@ class SGAN_generator(nn.Module):
         group_track = search_group_track_pos(meta_item,set_file)
 
         # encoder the track
-        hidden_state = self.encoder(group_track)
-
-        # Social Pooling
-        group_pooling_hidden = self.SPoolingNet(hidden_state,group_track)
+        if self.encoder.ifgru:
+            hidden_state = self.encoder(group_track)
+        else:
+            hidden_state,cell_state = self.encoder(group_track)
 
         # decode
+        prediction_track = self.decoder(hidden_state,group_track)
 
-
-        return hidden_state
+        return prediction_track
 
 class SGAN_discriminator(nn.Module):
     def __init__(self, trial=0) -> None:
