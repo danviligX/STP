@@ -199,7 +199,7 @@ class SGAN_generator(nn.Module):
         return prediction_track
 
 class SGAN_discriminator(nn.Module):
-    def __init__(self, trial=0) -> None:
+    def __init__(self, encdoer, trial=0) -> None:
         super().__init__()
     def forward(self):
         return 1
