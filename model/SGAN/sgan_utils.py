@@ -10,7 +10,7 @@ class SGAN_encoder(nn.Module):
     '''
     single core
     input:
-        history_track:
+        history_track: list of array, shape = [length,2]
     output:
         hidden_state: encoded sequences, size=[1,batch,hidden_size]
         cell_state: if use LSTM, size=[1,batch,hidden_size]
@@ -62,10 +62,10 @@ class SGAN_PoolingNet(nn.Module):
     '''
     single core
     input: 
-        group_track: encoded track
+        group_track: shape = [length,2]
         hidden_state: size=[1,batch,hidden_size]
     output:
-        hidden_state_after_group_pooling: for decoder to generate a sequence, size=[1,batch,hidden_size]
+        socail_hidden: for decoder to generate a sequence, size=[1,batch,hidden_size]
     '''
     def __init__(self, encoder, trial=0) -> None:
         super(SGAN_PoolingNet,self).__init__()
@@ -76,6 +76,7 @@ class SGAN_PoolingNet(nn.Module):
         self.mlp = make_mlp(dim_list)
     
     def pooling_one(self,hidden_state,group_track,center_idx_local):
+        # calculate relative end position
         center_pos_end = group_track[center_idx_local][-1]
         rel_nei_end_pos = []
         for track in group_track:
@@ -88,7 +89,7 @@ class SGAN_PoolingNet(nn.Module):
         mlp_input = torch.concatenate((hidden_state,real_pos_track_embdding),dim=2)[0]
         out = self.mlp(mlp_input)
         out = out.max(0)[0]
-        return out,REP
+        return out
     
     def forward(self,hidden_state,group_track):
         group_pooling_hidden = []
@@ -115,12 +116,10 @@ class SLSTM_SPooling(nn.Module):
 class SGAN_decoder(nn.Module):
     '''
     input:
-        center_hidden_state:
-        pooling_tyep: SocialPooling(Social-LSTM), PoolingNet(Social-GAN)
-        pidx_list:
-        center_pidx_local:
+        hidden state: soccial hidden state, size = [1, batch, hidden_size]
+        group track: list of track array, shape = [length,2]
     output:
-        predic_track:
+        predicted group track: list of track array, shape = [length,2]
     '''
     def __init__(self, encoder, SPoolingNet, trial=0) -> None:
         super(SGAN_decoder,self).__init__()
@@ -176,6 +175,13 @@ class SGAN_decoder(nn.Module):
         return group_track
 
 class SGAN_generator(nn.Module):
+    '''
+    input:
+        meta_item: preprocessed meta
+        set_file: preprocessed file
+    output:
+        prediction_track: predicted track
+    '''
     def __init__(self,Encoder,SPoolingNet,Decoder,trial=0) -> None:
         super(SGAN_generator,self).__init__()
         self.encoder = Encoder
