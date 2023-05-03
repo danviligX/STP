@@ -144,7 +144,7 @@ def search_track_pos(meta_item,set_file,search_pidx):
     track = np.delete(track,np.arange(start_idx_local),axis=0)
     return track,pidx_neighbor_array
 
-def search_group_track_pos(meta_item,set_file):
+def search_group_track_pos(meta_item,set_file,fram_num=20):
     '''
     input:
         meta_item: [set_code,pidx,start_fidx,end_fidx] a item of meta_info
@@ -152,12 +152,14 @@ def search_group_track_pos(meta_item,set_file):
     output:
         group_track: a list of track in the last frame of the scene, the first one is the center pidx's track
     '''
+    meta_item[3] = meta_item[2] + fram_num
     group_track,pidx_neighbor_array = search_track_pos(meta_item,set_file,meta_item[1])
     group_track = [group_track]
     for pidx in pidx_neighbor_array:
         track,_ = search_track_pos(meta_item,set_file,pidx)
         group_track.append(track)
-
+        
+    meta_item[3] = meta_item[2] + 20
     return group_track
 
 def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):

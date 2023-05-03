@@ -17,8 +17,8 @@ class SGAN_encoder(nn.Module):
     def __init__(self, trial=0):
         super(SGAN_encoder,self).__init__()
         
-        self.embadding_size = 64
-        self.hidden_size = 256
+        self.embadding_size = trial.suggest_int("embadding_size", 8, 128,step=8)
+        self.hidden_size = trial.suggest_int("hidden_size", 32, 512,step=16)
         self.ifgru = 1
 
         self.embadding = nn.Linear(in_features=2,out_features=self.embadding_size)
@@ -70,6 +70,8 @@ class SGAN_PoolingNet(nn.Module):
         super(SGAN_PoolingNet,self).__init__()
         self.hidden_size = encoder.hidden_size
         self.embdding_layer = encoder.embadding
+
+        self.mlp_hidden_size = trial.suggest_int("Spooling_hidden_size", 128, 1024,step=64)
 
         dim_list = [encoder.embadding_size+self.hidden_size,2*self.hidden_size,self.hidden_size]
         self.mlp = make_mlp(dim_list)
@@ -128,7 +130,7 @@ class SGAN_decoder(nn.Module):
         self.spooling = SPoolingNet
         self.predict_length = 12
         self.embadding = encoder.embadding
-        self.pooling_p_step = 1
+        self.pooling_p_step = trial.suggest_categorical("Spooling_p_step", [0, 1])
 
         if self.ifgru:
             self.decode = nn.GRU(input_size = embadding_size,hidden_size = hidden_size,num_layers = 1)
@@ -207,7 +209,10 @@ class SGAN_discriminator(nn.Module):
     def __init__(self, encoder, trial=0) -> None:
         super(SGAN_discriminator,self).__init__()
         self.encoder = encoder
+
+        self.mlp_hidden_size = trial.suggest_int("Discriminator_hidden_size", 128, 1024,step=64)
         dim_list = [encoder.hidden_size,2*encoder.hidden_size,encoder.hidden_size,1]
+
         self.mlp = make_mlp(dim_list)
         self.sigmod = nn.Sigmoid()
         
@@ -253,7 +258,7 @@ def SGAN_obj(trial):
     # hyperparameters selection with optuna
     optimizer_name = trial.suggest_categorical("optimizer", ["RMSprop", "SGD", "Adam"])
     lr = trial.suggest_float("lr", 1e-5, 1e-1, log=True)
-    batch_size = trial.suggest_int("batch_size", 8, 256,step=8)
+    batch_size = trial.suggest_int("batch_size", 8, 64,step=8)
     EPOCHS = trial.suggest_int("EPOCHS",1,10)
 
     # [train_set,validation_set,test_set]
@@ -263,10 +268,14 @@ def SGAN_obj(trial):
     train_validation_idx = data_divide(train_valid_array,para=data_div_para)
 
     Encoder = SGAN_encoder(trial)
-    SocialPooling = SGAN_PoolingNet(trial)
-    Decoder = SGAN_decoder(trial)
+    SocialPooling = SGAN_PoolingNet(encoder=Encoder,trial=trial)
+    Decoder = SGAN_decoder(SPoolingNet=SocialPooling,encoder=Encoder,trial=trial)
+    Generator = SGAN_generator(Encoder=Encoder,SPoolingNet=SocialPooling,Decoder=Decoder,trial=trial)
+    Discriminator = SGAN_discriminator(encoder=Encoder)
 
-    optimizer = getattr(torch.optim, optimizer_name)(Encoder.parameters(), lr=lr)
+    opt_gen = getattr(torch.optim, optimizer_name)(Generator.parameters(), lr=lr)
+    opt_dis = getattr(torch.optim, optimizer_name)(Discriminator.parameters(), lr=lr)
+
     criterion = nn.MSELoss()
 
     if data_div_method=='CV':
@@ -282,7 +291,7 @@ def SGAN_obj(trial):
             for _ in range(EPOCHS):
                 # train
                 Encoder = train(net=Encoder,train_loader=train_loader,criterion=criterion,
-                      optimizer=optimizer,batch_size=batch_size)
+                      optimizer=opt_gen,batch_size=batch_size)
                 # validation
                 epoch_error,_ = valid(Encoder,valid_loader,criterion)
 
