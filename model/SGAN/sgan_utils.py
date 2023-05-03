@@ -1,4 +1,3 @@
-import pickle
 import numpy as np
 import optuna
 import torch
@@ -94,7 +93,7 @@ class SGAN_PoolingNet(nn.Module):
     def forward(self,hidden_state,group_track):
         group_pooling_hidden = []
         for center_idx_local in range(len(group_track)):
-            pooling_hidden,_ = self.pooling_one(hidden_state,group_track,center_idx_local)
+            pooling_hidden = self.pooling_one(hidden_state,group_track,center_idx_local)
             group_pooling_hidden.append(pooling_hidden)
         GPH = torch.stack(group_pooling_hidden,dim=0)
 
@@ -205,10 +204,22 @@ class SGAN_generator(nn.Module):
         return prediction_track
 
 class SGAN_discriminator(nn.Module):
-    def __init__(self, encdoer, trial=0) -> None:
-        super().__init__()
-    def forward(self):
-        return 1
+    def __init__(self, encoder, trial=0) -> None:
+        super(SGAN_discriminator,self).__init__()
+        self.encoder = encoder
+        dim_list = [encoder.hidden_size,2*encoder.hidden_size,encoder.hidden_size,1]
+        self.mlp = make_mlp(dim_list)
+        self.sigmod = nn.Sigmoid()
+        
+    def forward(self,group_track):
+        if self.encoder.ifgru:
+            hidden = self.encoder(group_track)
+        else:
+            hidden,_ = self.encoder(group_track)
+        
+        out = self.mlp(hidden.squeeze())
+        score = self.sigmod(out)
+        return score
     
 class SGAN_dataset(Dataset):
     def __init__(self,item_idx) -> None:
