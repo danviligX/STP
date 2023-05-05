@@ -267,13 +267,12 @@ def SGAN_obj(trial):
 
     # para input
     data_div_method = 'CV'
-    # if torch.cuda.is_available():
-    #     device = torch.device("cuda:0")
-    #     print("Running on the GPU 0")
-    # else:
-    #     device = torch.device("cpu")
-    #     print("Running on the CPU")
-    device = torch.device("cuda:0")
+    if torch.cuda.is_available():
+        device = torch.device("cuda:0")
+        print("Running on the GPU 0")
+    else:
+        device = torch.device("cpu")
+        print("Running on the CPU")
 
     # hyperparameters selection with optuna
     optimizer_name = trial.suggest_categorical("optimizer", ["RMSprop", "SGD", "Adam"])
