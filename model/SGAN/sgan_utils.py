@@ -266,7 +266,8 @@ def SGAN_obj(trial):
     optimizer_name = trial.suggest_categorical("optimizer", ["RMSprop", "SGD", "Adam"])
     lr = trial.suggest_float("lr", 1e-5, 1e-1, log=True)
     batch_size = trial.suggest_int("batch_size", 2, 32,step=2)
-    EPOCHS = trial.suggest_int("EPOCHS",1,5)
+    # EPOCHS = trial.suggest_int("EPOCHS",1,5)
+    EPOCHS = 1
 
     # [train_set,validation_set,test_set]
     train_valid_array = np.load('./data/meta/train_valid.npy')
@@ -288,7 +289,8 @@ def SGAN_obj(trial):
 
     if data_div_method=='CV':
         optuna_error = torch.tensor([])
-        for CV_i in range(data_div_para):
+        # for CV_i in range(data_div_para):
+        for CV_i in range(1):
             train_item_idx = train_validation_idx[CV_i][0]
             valid_item_idx = train_validation_idx[CV_i][1]
             train_loader,valid_loader = SGAN_data_loader(train_item_idx=train_item_idx,
