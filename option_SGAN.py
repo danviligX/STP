@@ -1,14 +1,17 @@
 import os
-import pickle
-import numpy as np
 
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
+import pickle
+
+import numpy as np
 import optuna
 import torch
 import torch.nn as nn
 
-from clstp.utils import data_preprocess
 from clstp.dataio import read_set_file
+from clstp.utils import data_preprocess
 from model.SGAN.sgan_utils import *
+
 
 def main():
     if os.path.exists(''.join(['./data/meta/','meta_info.npy'])) is False:
@@ -50,5 +53,5 @@ def Model_test(trial,net_dic,test_data_path='./data/meta/test_array.npy'):
     return error_table
 
 if __name__=='__main__':
-    # main()
+    main()
     pass

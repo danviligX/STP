@@ -17,10 +17,10 @@ class SGAN_encoder(nn.Module):
     '''
     def __init__(self, trial=0):
         super(SGAN_encoder,self).__init__()
-        self.embadding_size = 64
-        self.hidden_size = 256
-        # self.embadding_size = trial.suggest_int("embadding_size", 8, 128,step=8)
-        # self.hidden_size = trial.suggest_int("hidden_size", 32, 512,step=16)
+        # self.embadding_size = 64
+        # self.hidden_size = 256
+        self.embadding_size = trial.suggest_int("embadding_size", 8, 128,step=8)
+        self.hidden_size = trial.suggest_int("hidden_size", 32, 512,step=16)
         self.ifgru = 1
 
         self.embadding = nn.Linear(in_features=2,out_features=self.embadding_size)
@@ -73,8 +73,8 @@ class SGAN_PoolingNet(nn.Module):
         self.hidden_size = encoder.hidden_size
         self.embdding_layer = encoder.embadding
 
-        # self.mlp_hidden_size = trial.suggest_int("Spooling_hidden_size", 128, 1024,step=64)
-        self.mlp_hidden_size = 128
+        self.mlp_hidden_size = trial.suggest_int("Spooling_hidden_size", 128, 1024,step=64)
+        # self.mlp_hidden_size = 128
 
         dim_list = [encoder.embadding_size+self.hidden_size,2*self.hidden_size,self.hidden_size]
         self.mlp = make_mlp(dim_list)
@@ -133,8 +133,8 @@ class SGAN_decoder(nn.Module):
         self.spooling = SPoolingNet
         self.predict_length = pre_frame
         self.embadding = encoder.embadding
-        # self.pooling_p_step = trial.suggest_categorical("Spooling_p_step", [0, 1])
-        self.pooling_p_step = 1
+        self.pooling_p_step = trial.suggest_categorical("Spooling_p_step", [0, 1])
+        # self.pooling_p_step = 1
 
         if self.ifgru:
             self.decode = nn.GRU(input_size = embadding_size,hidden_size = hidden_size,num_layers = 1)
@@ -216,8 +216,8 @@ class SGAN_discriminator(nn.Module):
         super(SGAN_discriminator,self).__init__()
         self.encoder = encoder
 
-        self.mlp_hidden_size = 256
-        # self.mlp_hidden_size = trial.suggest_int("Discriminator_hidden_size", 128, 1024,step=64)
+        # self.mlp_hidden_size = 256
+        self.mlp_hidden_size = trial.suggest_int("Discriminator_hidden_size", 128, 1024,step=64)
         dim_list = [encoder.hidden_size,2*encoder.hidden_size,encoder.hidden_size,1]
 
         self.mlp = make_mlp(dim_list)
@@ -266,8 +266,8 @@ def SGAN_obj(trial):
     optimizer_name = trial.suggest_categorical("optimizer", ["RMSprop", "SGD", "Adam"])
     lr = trial.suggest_float("lr", 1e-5, 1e-1, log=True)
     batch_size = trial.suggest_int("batch_size", 2, 32,step=2)
-    # EPOCHS = trial.suggest_int("EPOCHS",1,5)
-    EPOCHS = 1
+    EPOCHS = trial.suggest_int("EPOCHS",1,5)
+    # EPOCHS = 1
 
     # [train_set,validation_set,test_set]
     train_valid_array = np.load('./data/meta/train_valid.npy')
@@ -289,8 +289,8 @@ def SGAN_obj(trial):
 
     if data_div_method=='CV':
         optuna_error = torch.tensor([])
-        # for CV_i in range(data_div_para):
-        for CV_i in range(1):
+        for CV_i in range(data_div_para):
+        # for CV_i in range(1):
             train_item_idx = train_validation_idx[CV_i][0]
             valid_item_idx = train_validation_idx[CV_i][1]
             train_loader,valid_loader = SGAN_data_loader(train_item_idx=train_item_idx,
@@ -298,29 +298,30 @@ def SGAN_obj(trial):
                                                               batch_size=batch_size)
 
             valid_error = torch.tensor([])
-            for _ in range(EPOCHS):
+            for epoch in range(EPOCHS):
                 # train
                 Generator = train(net=Generator,train_loader=train_loader,criterion=criterion,
-                      optimizer=opt_gen,batch_size=batch_size,set_file_list=set_file_list)
+                      optimizer=opt_gen,batch_size=batch_size,set_file_list=set_file_list,trial=trial)
                 # validation
                 epoch_error,_ = valid(Generator,valid_loader,criterion,set_file_list)
+                print('[Epoch Error:{},Epoch:{},CV_k:{}]'.format(epoch_error.item(),epoch,CV_i))
 
                 valid_error = torch.concat((valid_error,epoch_error))
             valid_error = torch.tensor([valid_error.mean()])
 
             # drop trail if error is not acceptable
-            trial.report(valid_error.item(),CV_i)
-            if trial.should_prune():
-                raise optuna.exceptions.TrialPruned()
-            else:
-                optuna_error = torch.concat((valid_error,optuna_error))
+            # trial.report(valid_error.item(),CV_i)
+            # if trial.should_prune():
+            #     raise optuna.exceptions.TrialPruned()
+            # else:
+            optuna_error = torch.concat((valid_error,optuna_error))
 
         optuna_error = optuna_error.mean()
 
     torch.save(Encoder.state_dict(),'./model/SGAN/trial/trial_{}.model'.format(trial.number))
     return optuna_error
 
-def train(net,train_loader,criterion,optimizer,batch_size,set_file_list):
+def train(net,train_loader,criterion,optimizer,batch_size,set_file_list,trial):
     net.train()
     
     for _,batched_meta in enumerate(train_loader):
@@ -331,6 +332,11 @@ def train(net,train_loader,criterion,optimizer,batch_size,set_file_list):
 
             out = net(meta_item,set_file)
             loss = criterion(group_track_target[0],out[0])
+
+            trial.report(loss.item())
+            if trial.should_prune():
+                raise optuna.exceptions.TrialPruned()
+
             loss.backward()
         optimizer.step()    
     return net
