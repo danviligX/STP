@@ -1,6 +1,7 @@
 import numpy as np
 import optuna
 import torch
+import os
 import torch.nn as nn
 from torch.utils.data import Dataset,DataLoader
 from clstp.utils import data_divide, make_mlp, search_group_track_pos
@@ -189,16 +190,17 @@ class SGAN_generator(nn.Module):
     output:
         prediction_track: predicted track
     '''
-    def __init__(self,Encoder,SPoolingNet,Decoder,trial=0) -> None:
+    def __init__(self,Encoder,SPoolingNet,Decoder,device=torch.device('cpu'),trial=0) -> None:
         super(SGAN_generator,self).__init__()
         self.encoder = Encoder
         self.SPoolingNet = SPoolingNet
         # self.decoder = nn.Linear(in_features=self.encoder.hidden_size,out_features=2)
         self.decoder = Decoder
+        self.device = device
 
     def forward(self,meta_item,set_file):
         # gain the track in the scene of last frame
-        group_track = search_group_track_pos(meta_item,set_file,8)
+        group_track = search_group_track_pos(meta_item,set_file,fram_num=8,device=self.device)
 
         # encoder the track
         if self.encoder.ifgru:
@@ -258,9 +260,20 @@ def SGAN_data_loader(train_item_idx=None,valid_item_idx=None,test_item_idx=None,
         return test_loader
 
 def SGAN_obj(trial):
+    # os.environ['CUDA_VISIBLE_DEVICES'] = '0' 
+    # torch.cuda.set_device(0)
+    # torch.cuda.is_available()
+    # torch.cuda.current_device()
 
     # para input
     data_div_method = 'CV'
+    # if torch.cuda.is_available():
+    #     device = torch.device("cuda:0")
+    #     print("Running on the GPU 0")
+    # else:
+    #     device = torch.device("cpu")
+    #     print("Running on the CPU")
+    device = torch.device("cuda:0")
 
     # hyperparameters selection with optuna
     optimizer_name = trial.suggest_categorical("optimizer", ["RMSprop", "SGD", "Adam"])
@@ -276,11 +289,11 @@ def SGAN_obj(trial):
     train_validation_idx = data_divide(train_valid_array,para=data_div_para)
     set_file_list = read_set_file()
 
-    Encoder = SGAN_encoder(trial)
-    SocialPooling = SGAN_PoolingNet(encoder=Encoder,trial=trial)
-    Decoder = SGAN_decoder(SPoolingNet=SocialPooling,encoder=Encoder,pre_frame=12,trial=trial)
-    Generator = SGAN_generator(Encoder=Encoder,SPoolingNet=SocialPooling,Decoder=Decoder,trial=trial)
-    Discriminator = SGAN_discriminator(encoder=Encoder,trial=trial)
+    Encoder = SGAN_encoder(trial).to(device)
+    SocialPooling = SGAN_PoolingNet(encoder=Encoder,trial=trial).to(device)
+    Decoder = SGAN_decoder(SPoolingNet=SocialPooling,encoder=Encoder,pre_frame=12,trial=trial).to(device)
+    Generator = SGAN_generator(Encoder=Encoder,SPoolingNet=SocialPooling,Decoder=Decoder,trial=trial,device=device).to(device)
+    Discriminator = SGAN_discriminator(encoder=Encoder,trial=trial).to(device)
 
     opt_gen = getattr(torch.optim, optimizer_name)(Generator.parameters(), lr=lr)
     opt_dis = getattr(torch.optim, optimizer_name)(Discriminator.parameters(), lr=lr)
@@ -301,12 +314,18 @@ def SGAN_obj(trial):
             for epoch in range(EPOCHS):
                 # train
                 Generator = train(net=Generator,train_loader=train_loader,criterion=criterion,
-                      optimizer=opt_gen,batch_size=batch_size,set_file_list=set_file_list,trial=trial)
+                      optimizer=opt_gen,batch_size=batch_size,set_file_list=set_file_list,trial=trial,
+                      device=device)
                 # validation
-                epoch_error,_ = valid(Generator,valid_loader,criterion,set_file_list)
-                print('[Epoch Error:{},Epoch:{},CV_k:{}]'.format(epoch_error.item(),epoch,CV_i))
+                epoch_error,_ = valid(Generator,valid_loader,criterion,set_file_list,device=device)
+                print('Epoch Error:{},Epoch:{},CV_k:{}'.format(epoch_error.item(),epoch,CV_i))
 
                 valid_error = torch.concat((valid_error,epoch_error))
+                step = int(str(CV_i)+'00'+str(epoch))
+                trial.report(epoch_error.item(),step)
+                if trial.should_prune():
+                    raise optuna.exceptions.TrialPruned()
+                
             valid_error = torch.tensor([valid_error.mean()])
 
             # drop trail if error is not acceptable
@@ -321,34 +340,30 @@ def SGAN_obj(trial):
     torch.save(Encoder.state_dict(),'./model/SGAN/trial/trial_{}.model'.format(trial.number))
     return optuna_error
 
-def train(net,train_loader,criterion,optimizer,batch_size,set_file_list,trial):
+def train(net,train_loader,criterion,optimizer,batch_size,set_file_list,trial,device=torch.device('cpu')):
     net.train()
     
     for _,batched_meta in enumerate(train_loader):
         optimizer.zero_grad()
-        for meta_item in batched_meta:
+        for idx,meta_item in enumerate(batched_meta):
             set_file = set_file_list[meta_item[0].item()]
-            group_track_target = search_group_track_pos(meta_item,set_file,20)
+            group_track_target = search_group_track_pos(meta_item,set_file,fram_num=20,device=device)
 
             out = net(meta_item,set_file)
             loss = criterion(group_track_target[0],out[0])
-
-            trial.report(loss.item())
-            if trial.should_prune():
-                raise optuna.exceptions.TrialPruned()
 
             loss.backward()
         optimizer.step()    
     return net
 
-def valid(net,valid_loader,criterion,set_file_list):
+def valid(net,valid_loader,criterion,set_file_list,device=torch.device('cpu')):
     error = torch.tensor([])
     net.eval()
     with torch.no_grad():
         for _,batched_one_meta in enumerate(valid_loader):
             meta_item = batched_one_meta[0]
             set_file = set_file_list[meta_item[0].item()]
-            group_track_target = search_group_track_pos(meta_item,set_file,20)
+            group_track_target = search_group_track_pos(meta_item,set_file,fram_num=20,device=device)
             out = net(meta_item,set_file)
             loss = criterion(group_track_target[0],out[0])
             loss_tensor = torch.tensor([loss.item()])
@@ -358,14 +373,14 @@ def valid(net,valid_loader,criterion,set_file_list):
     
     return torch.tensor([epoch_error]),epoch_error_std
 
-def SGAN_test(net,test_loader,criterion,set_file_list):
+def SGAN_test(net,test_loader,criterion,set_file_list,device=torch.device('cpu')):
     test_length = len(test_loader)
     error = torch.zeros(test_length,2)
     with torch.no_grad():
         for item_idx,batched_one_meta in enumerate(test_loader):
             meta_item = batched_one_meta[0]
             set_file = set_file_list[meta_item[0].item()]
-            group_track_target = search_group_track_pos(meta_item,set_file,20)
+            group_track_target = search_group_track_pos(meta_item,set_file,fram_num=20,device=device)
             out = net(meta_item,set_file)
             loss = criterion(out[0],group_track_target[0])
             error[item_idx,0] = meta_item[0].item()

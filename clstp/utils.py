@@ -114,7 +114,7 @@ def meta_generator(raw_folder_path,raw_file_name_list):
 
     return meta_info,fid_unique_list
 
-def search_track_pos(meta_item,set_file,search_pidx):
+def search_track_pos(meta_item,set_file,search_pidx,device=torch.device('cpu')):
     '''
     input:
         meta_item: [set_code,pidx,start_fidx,end_fidx] a item of meta_info
@@ -143,9 +143,18 @@ def search_track_pos(meta_item,set_file,search_pidx):
 
     pidx_neighbor_array = np.delete(frame_info[:,0],local_idx,axis=0)
     track = np.delete(track,np.arange(start_idx_local),axis=0)
-    return torch.from_numpy(track),pidx_neighbor_array
+    # if device == torch.device("cpu"):
+    #     return torch.from_numpy(track),pidx_neighbor_array
+    # else:
+    #     return torch.from_numpy(track).cuda(),pidx_neighbor_array
+    T = torch.from_numpy(track)
+    if device==torch.device('cpu'):
+        return T.cpu(),pidx_neighbor_array
+    else:
+        return T.cuda(),pidx_neighbor_array
+    
 
-def search_group_track_pos(meta_item,set_file,fram_num=20):
+def search_group_track_pos(meta_item,set_file,device=torch.device('cpu'),fram_num=20):
     '''
     input:
         meta_item: [set_code,pidx,start_fidx,end_fidx] a item of meta_info
@@ -155,10 +164,10 @@ def search_group_track_pos(meta_item,set_file,fram_num=20):
     '''
     meta_item = np.array(meta_item)
     meta_item[3] = meta_item[2] + fram_num
-    group_track,pidx_neighbor_array = search_track_pos(meta_item,set_file,meta_item[1])
+    group_track,pidx_neighbor_array = search_track_pos(meta_item,set_file,meta_item[1],device=device)
     group_track = [group_track]
     for pidx in pidx_neighbor_array:
-        track,_ = search_track_pos(meta_item,set_file,pidx)
+        track,_ = search_track_pos(meta_item,set_file,pidx,device=device)
         group_track.append(track)
         
     meta_item[3] = meta_item[2] + 20
