@@ -116,16 +116,16 @@ def cross_validation(item_index_array,k=10):
     set_list = item_index_array.reshape((k,-1))
     train_valid_set = []
     for i in range(k):
-        train_set = np.delete(set_list,i,axis=0).reshape((1,-1))[0].astype(np.uint32)
-        validation_set = set_list[i].reshape((1,-1))[0].astype(np.uint32)
+        train_set = np.delete(set_list,i,axis=0).reshape((1,-1))[0].astype(np.int32)
+        validation_set = set_list[i].reshape((1,-1))[0].astype(np.int32)
         train_valid_set.append((train_set,validation_set))
     return train_valid_set
 
 def boot_strapping(item_index_array,num=[2000,20]):
     train_num = num[0]
     validation_num=num[1]
-    train_set = np.random.choice(item_index_array,size=train_num,replace=True).astype(np.uint32)
-    valid_set = np.random.choice(item_index_array,size=validation_num,replace=True).astype(np.uint32)
+    train_set = np.random.choice(item_index_array,size=train_num,replace=True).astype(np.int32)
+    valid_set = np.random.choice(item_index_array,size=validation_num,replace=True).astype(np.int32)
     return [train_set,valid_set]
 
 def hould_out(item_index_array,rate = 0.1):
@@ -134,8 +134,8 @@ def hould_out(item_index_array,rate = 0.1):
         sys.exit()
     np.random.shuffle(item_index_array)
     valid_split_num = int(len(item_index_array)*rate)
-    valid_set = item_index_array[:valid_split_num].astype(np.uint32)
-    train_set = item_index_array[valid_split_num+1:].astype(np.uint32)
+    valid_set = item_index_array[:valid_split_num].astype(np.int32)
+    train_set = item_index_array[valid_split_num+1:].astype(np.int32)
     return [train_set,valid_set]
 
 def read_set_file(set_folder_path = './data/set/',

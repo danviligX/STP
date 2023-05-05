@@ -4,6 +4,7 @@ import sys
 
 import numpy as np
 import torch.nn as nn
+import torch
 
 from clstp.dataio import (boot_strapping, cross_validation, generate_meta_info,
                           generate_set_info, hould_out)
@@ -81,7 +82,7 @@ def meta_divide(meta_info,rate=0.1):
     res = train_valid_set.size%20
     if res!= 0:
         select_set_i_index = np.random.choice(train_valid_set,size=res,replace=False)
-        test_set = np.union1d(test_set,select_set_i_index).astype(np.uint32)
+        test_set = np.union1d(test_set,select_set_i_index).astype(np.int32)
         train_valid_set = np.setdiff1d(train_valid_set,test_set)
     return train_valid_set,test_set
 
@@ -99,7 +100,7 @@ def data_divide(item_index_array,method='CV',para=10):
     return train_valid_set
 
 def meta_generator(raw_folder_path,raw_file_name_list):
-    meta_info = np.zeros([1,4]).astype(np.uint32)
+    meta_info = np.zeros([1,4]).astype(np.int32)
     fid_unique_list = []
     for i in range(len(raw_file_name_list)):
         raw_file_name = raw_file_name_list[i]
@@ -142,7 +143,7 @@ def search_track_pos(meta_item,set_file,search_pidx):
 
     pidx_neighbor_array = np.delete(frame_info[:,0],local_idx,axis=0)
     track = np.delete(track,np.arange(start_idx_local),axis=0)
-    return track,pidx_neighbor_array
+    return torch.from_numpy(track),pidx_neighbor_array
 
 def search_group_track_pos(meta_item,set_file,fram_num=20):
     '''
@@ -152,6 +153,7 @@ def search_group_track_pos(meta_item,set_file,fram_num=20):
     output:
         group_track: a list of track in the last frame of the scene, the first one is the center pidx's track
     '''
+    meta_item = np.array(meta_item)
     meta_item[3] = meta_item[2] + fram_num
     group_track,pidx_neighbor_array = search_track_pos(meta_item,set_file,meta_item[1])
     group_track = [group_track]

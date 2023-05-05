@@ -54,8 +54,7 @@ class LinearDMS_dataset(Dataset):
         for index in item_idx:
             meta_item = meta_info[index]
             # modify may requied, because of  modify of clstp.utils.search_track_pos
-            track,_ = search_track_pos(meta_item,set_file[meta_item[0]])
-            track = track[0]
+            track,_ = search_track_pos(meta_item,set_file[meta_item[0]],meta_item[1])
 
             track_x = track[:history_len].transpose()
             track_y = track[history_len:].transpose()
