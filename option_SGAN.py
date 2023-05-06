@@ -28,7 +28,7 @@ def initialization():
         meta_folder_path='./data/meta/',
         test_set_rate=0.1)
 
-def optuna_study(trial_num=1):
+def optuna_study(trial_num=5):
     study = optuna.create_study(direction='minimize',study_name='SGAN')
     study.optimize(SGAN_obj,n_trials=trial_num)
     with open('./model/SGAN/study.pkl','wb') as path:

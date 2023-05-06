@@ -278,7 +278,7 @@ def SGAN_obj(trial):
     optimizer_name = trial.suggest_categorical("optimizer", ["RMSprop", "SGD", "Adam"])
     lr = trial.suggest_float("lr", 1e-5, 1e-1, log=True)
     batch_size = trial.suggest_int("batch_size", 2, 32,step=2)
-    EPOCHS = trial.suggest_int("EPOCHS",1,5)
+    EPOCHS = trial.suggest_int("EPOCHS",1,20)
     # EPOCHS = 1
 
     # [train_set,validation_set,test_set]
@@ -317,12 +317,16 @@ def SGAN_obj(trial):
                       device=device)
                 # validation
                 epoch_error,_ = valid(Generator,valid_loader,criterion,set_file_list,device=device)
-                print('Epoch Error:{},Epoch:{},CV_k:{},trail:{}'.format(epoch_error.item(),epoch,CV_i,trial.number))
+                print('loss:{},Epoch:{},trail:{}'.format(epoch_error.item(),epoch,trial.number))
 
                 valid_error = torch.concat((valid_error,epoch_error))
-                step = int(str(CV_i)+'00'+str(epoch))
-                trial.report(epoch_error.item(),step)
+                # step = int(str(CV_i)+'00'+str(epoch))
+                trial.report(epoch_error.item(),epoch)
                 if trial.should_prune():
+                    raise optuna.exceptions.TrialPruned()
+                if torch.isnan(epoch_error).any():
+                    raise optuna.exceptions.TrialPruned()
+                if torch.isinf(epoch_error).any():
                     raise optuna.exceptions.TrialPruned()
                 
             valid_error = torch.tensor([valid_error.mean()])
