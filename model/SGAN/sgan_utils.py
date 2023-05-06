@@ -283,7 +283,7 @@ def SGAN_obj(trial):
 
     # [train_set,validation_set,test_set]
     train_valid_array = np.load('./data/meta/train_valid.npy')
-    data_div_para = trial.suggest_categorical("Cross Validation k", [5,10])
+    data_div_para = 10
 
     train_validation_idx = data_divide(train_valid_array,para=data_div_para)
     set_file_list = read_set_file()
@@ -301,8 +301,8 @@ def SGAN_obj(trial):
 
     if data_div_method=='CV':
         optuna_error = torch.tensor([])
-        for CV_i in range(data_div_para):
-        # for CV_i in range(1):
+        # for CV_i in range(data_div_para):
+        for CV_i in range(1):
             train_item_idx = train_validation_idx[CV_i][0]
             valid_item_idx = train_validation_idx[CV_i][1]
             train_loader,valid_loader = SGAN_data_loader(train_item_idx=train_item_idx,
@@ -336,7 +336,7 @@ def SGAN_obj(trial):
 
         optuna_error = optuna_error.mean()
 
-    torch.save(Encoder.state_dict(),'./model/SGAN/trial/trial_{}.model'.format(trial.number))
+    torch.save(Generator.state_dict(),'./model/SGAN/trial/trial_{}.model'.format(trial.number))
     return optuna_error
 
 def train(net,train_loader,criterion,optimizer,batch_size,set_file_list,trial,device=torch.device('cpu')):

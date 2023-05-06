@@ -16,7 +16,7 @@ def main():
         initialization()
 
     trial = optuna_study()
-    dic_path = ''.join(['./model/SGAN/trial_',trial.number,'.model'])
+    dic_path = ''.join(['./model/SGAN/trial/trial_',str(trial.number),'.model'])
     error_table = Model_test(trial,dic_path)
     print(error_table)
 
@@ -28,7 +28,7 @@ def initialization():
         meta_folder_path='./data/meta/',
         test_set_rate=0.1)
 
-def optuna_study(trial_num=5):
+def optuna_study(trial_num=1):
     study = optuna.create_study(direction='minimize',study_name='SGAN')
     study.optimize(SGAN_obj,n_trials=trial_num)
     with open('./model/SGAN/study.pkl','wb') as path:
@@ -38,7 +38,13 @@ def optuna_study(trial_num=5):
     return study.best_trial
 
 def Model_test(trial,net_dic,test_data_path='./data/meta/test_array.npy'):
-    net = SGAN_generator(trial)
+    device = torch.device('cpu')
+    Encoder = SGAN_encoder(trial).to(device)
+    SocialPooling = SGAN_PoolingNet(encoder=Encoder,trial=trial).to(device)
+    Decoder = SGAN_decoder(SPoolingNet=SocialPooling,encoder=Encoder,pre_frame=12,trial=trial).to(device)
+    net = SGAN_generator(Encoder=Encoder,SPoolingNet=SocialPooling,Decoder=Decoder,trial=trial,device=device).to(device)
+    Discriminator = SGAN_discriminator(encoder=Encoder,trial=trial).to(device)
+
     net_state = torch.load(net_dic)
     net.load_state_dict(net_state)
 
