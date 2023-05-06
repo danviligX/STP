@@ -4,4 +4,4 @@ result
 data
 **/temp
 **/*.ipynb
-**/trial/*
+model/SGAN/trial/*

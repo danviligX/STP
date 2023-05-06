@@ -317,7 +317,7 @@ def SGAN_obj(trial):
                       device=device)
                 # validation
                 epoch_error,_ = valid(Generator,valid_loader,criterion,set_file_list,device=device)
-                print('Epoch Error:{},Epoch:{},CV_k:{}'.format(epoch_error.item(),epoch,CV_i))
+                print('Epoch Error:{},Epoch:{},CV_k:{},trail:{}'.format(epoch_error.item(),epoch,CV_i,trial.number))
 
                 valid_error = torch.concat((valid_error,epoch_error))
                 step = int(str(CV_i)+'00'+str(epoch))
