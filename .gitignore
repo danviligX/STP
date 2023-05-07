@@ -1,6 +1,7 @@
 **/__pycache__
 main.ipynb
 result
-data
 **/temp
 **/*.ipynb
+.gitignore
+**/study.pkl

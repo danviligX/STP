@@ -27,7 +27,7 @@ def generate_set_info(raw_file_path):
                 pidx_pos = [np.argwhere(pid_unique==pid)[0,0],pos[0],pos[1]]
                 pidx_pos_list.append(pidx_pos)
         
-        pidx_pos_list = np.array(pidx_pos_list).astype(np.float32)
+        pidx_pos_list = np.array(pidx_pos_list)
         frame_list.append(pidx_pos_list)
         i += j 
 
@@ -50,8 +50,11 @@ def generate_meta_info(raw_file_path, raw_file_name_list=None):
     pid_unique = np.unique(track_pid_list)
     fid_unique = np.unique(fid_list)
 
-    meta_info = np.zeros([len(pid_list),4])
-    for i in range(len(pid_list)):
+    meta_length = len(pid_list)
+    if meta_length > 1100:
+        meta_length = 1001
+    meta_info = np.zeros([meta_length,4]).astype(np.int32)
+    for i in range(meta_length):
         pid_idx = np.argwhere(pid_unique==pid_list[i])[0,0]
         start_fid_idx = np.argwhere(fid_unique==fse_list[i][0])[0,0]
         end_fid_idx = np.argwhere(fid_unique==fse_list[i][1])[0,0]
@@ -59,7 +62,7 @@ def generate_meta_info(raw_file_path, raw_file_name_list=None):
         temp_vec = [data_code,pid_idx,start_fid_idx,end_fid_idx]
         meta_info[i,:] = temp_vec
 
-    meta_info = meta_info.astype(np.uint32)
+    
    
     return meta_info,fid_unique
 
@@ -116,16 +119,16 @@ def cross_validation(item_index_array,k=10):
     set_list = item_index_array.reshape((k,-1))
     train_valid_set = []
     for i in range(k):
-        train_set = np.delete(set_list,i,axis=0).reshape((1,-1))[0].astype(np.int32)
-        validation_set = set_list[i].reshape((1,-1))[0].astype(np.int32)
+        train_set = np.delete(set_list,i,axis=0).reshape((1,-1))[0]
+        validation_set = set_list[i].reshape((1,-1))[0]
         train_valid_set.append((train_set,validation_set))
     return train_valid_set
 
 def boot_strapping(item_index_array,num=[2000,20]):
     train_num = num[0]
     validation_num=num[1]
-    train_set = np.random.choice(item_index_array,size=train_num,replace=True).astype(np.int32)
-    valid_set = np.random.choice(item_index_array,size=validation_num,replace=True).astype(np.int32)
+    train_set = np.random.choice(item_index_array,size=train_num,replace=True)
+    valid_set = np.random.choice(item_index_array,size=validation_num,replace=True)
     return [train_set,valid_set]
 
 def hould_out(item_index_array,rate = 0.1):
@@ -134,8 +137,8 @@ def hould_out(item_index_array,rate = 0.1):
         sys.exit()
     np.random.shuffle(item_index_array)
     valid_split_num = int(len(item_index_array)*rate)
-    valid_set = item_index_array[:valid_split_num].astype(np.int32)
-    train_set = item_index_array[valid_split_num+1:].astype(np.int32)
+    valid_set = item_index_array[:valid_split_num]
+    train_set = item_index_array[valid_split_num+1:]
     return [train_set,valid_set]
 
 def read_set_file(set_folder_path = './data/set/',

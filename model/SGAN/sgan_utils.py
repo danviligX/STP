@@ -322,6 +322,8 @@ def SGAN_obj(trial):
                 valid_error = torch.concat((valid_error,epoch_error))
                 # step = int(str(CV_i)+'00'+str(epoch))
                 trial.report(epoch_error.item(),epoch)
+                if epoch_error > 1000:
+                    raise optuna.exceptions.TrialPruned()
                 if trial.should_prune():
                     raise optuna.exceptions.TrialPruned()
                 if torch.isnan(epoch_error).any():
@@ -331,11 +333,6 @@ def SGAN_obj(trial):
                 
             valid_error = torch.tensor([valid_error.mean()])
 
-            # drop trail if error is not acceptable
-            # trial.report(valid_error.item(),CV_i)
-            # if trial.should_prune():
-            #     raise optuna.exceptions.TrialPruned()
-            # else:
             optuna_error = torch.concat((valid_error,optuna_error))
 
         optuna_error = optuna_error.mean()

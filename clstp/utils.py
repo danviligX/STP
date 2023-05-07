@@ -31,6 +31,7 @@ def data_preprocess(
     # generate meta info
     meta_info,fid_unique_list = meta_generator(raw_folder_path,raw_file_name_list)
     train_valid_array,test_array = meta_divide(meta_info,rate=test_set_rate)
+
     np.save("".join([meta_folder_path,'meta_info']),meta_info)
     np.save("".join([meta_folder_path,'train_valid']),train_valid_array)
     np.save("".join([meta_folder_path,'test_array']),test_array)
@@ -62,7 +63,7 @@ def meta_divide(meta_info,rate=0.1):
     '''
     step 1: pick up 10% items from each dataset
     step 2: the left data is the train and valid set
-    step 3: if the item number of left data is not divisible by 20, select more data into test set.
+    step 3: if the item number of left data is not divisible by 20, select more data into test set. For cross validation with k=5,10,20
     '''
     meta_info_array = np.arange(meta_info[:,0].size)
     _,set_label_count = np.unique(meta_info[:,0],return_counts=True)
@@ -153,7 +154,6 @@ def search_track_pos(meta_item,set_file,search_pidx,device=torch.device('cpu')):
     else:
         return T.cuda(),pidx_neighbor_array
     
-
 def search_group_track_pos(meta_item,set_file,device=torch.device('cpu'),fram_num=20):
     '''
     input:
