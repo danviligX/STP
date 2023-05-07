@@ -3,5 +3,5 @@ main.ipynb
 result
 **/temp
 **/*.ipynb
-.gitignore
 **/study.pkl
+.gitignore
