@@ -11,6 +11,9 @@ from clstp.dataio import (boot_strapping, cross_validation, generate_meta_info,
 
 # raw_file_name = os.path.splitext(raw_file_name)[0]
 # raw_file_extension = os.path.splitext(raw_file)[-1]
+class Args(object):
+    def __init__(self) -> None:
+        pass
 
 def data_preprocess(
         raw_folder_path='./data/raw/',
@@ -144,10 +147,7 @@ def search_track_pos(meta_item,set_file,search_pidx,device=torch.device('cpu')):
 
     pidx_neighbor_array = np.delete(frame_info[:,0],local_idx,axis=0)
     track = np.delete(track,np.arange(start_idx_local),axis=0)
-    # if device == torch.device("cpu"):
-    #     return torch.from_numpy(track),pidx_neighbor_array
-    # else:
-    #     return torch.from_numpy(track).cuda(),pidx_neighbor_array
+    
     T = torch.from_numpy(track)
     if device==torch.device('cpu'):
         return T.cpu(),pidx_neighbor_array

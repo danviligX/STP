@@ -5,3 +5,7 @@ result
 **/*.ipynb
 **/study.pkl
 .gitignore
+com.ipbnb
+**/*.miarg
+**/*.model
+**/*_study.pkl

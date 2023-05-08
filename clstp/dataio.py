@@ -4,8 +4,33 @@ import sys
 
 import numpy as np
 import pickle
+from torch.utils.data import Dataset,DataLoader
 
+class stp_dataset(Dataset):
+    def __init__(self,item_idx) -> None:
+        super().__init__()
+        meta_info = np.load('./data/meta/meta_info.npy')
+        self.meta_info = meta_info[item_idx]
+    def __getitem__(self, index):
+        return self.meta_info[index]
+    def __len__(self):
+        return len(self.meta_info)
 
+def stp_dataloader(train_item_idx=None,valid_item_idx=None,test_item_idx=None,batch_size=1):
+    '''
+    output: batched_item
+    '''
+    if train_item_idx is not None:
+        train_set = stp_dataset(train_item_idx)
+        valid_set = stp_dataset(valid_item_idx)
+        train_loader = DataLoader(train_set,batch_size=batch_size,shuffle=True,num_workers=4,drop_last=True)
+        valid_loader = DataLoader(valid_set,batch_size=1,shuffle=False,num_workers=4,drop_last=True)
+        return train_loader,valid_loader
+    else:
+        test_set = stp_dataset(test_item_idx)
+        test_loader = DataLoader(test_set,batch_size=1,shuffle=False,num_workers=4,drop_last=True)
+        return test_loader
+    
 def generate_set_info(raw_file_path):
     '''
     input: raw_file
