@@ -46,3 +46,6 @@ def model_eval(args_dic,net_dic,test_data_path='./data/meta/test_array.npy'):
     error_table = test(net,test_loader,criterion,set_file_list,device=args.device)
 
     return error_table
+
+if __name__=='__main__':
+    main()
