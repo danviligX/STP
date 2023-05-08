@@ -1,3 +1,6 @@
+import os
+import sys
+sys.path.append(os.getcwd())
 import optuna
 import torch
 import numpy as np

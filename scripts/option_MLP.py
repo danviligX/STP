@@ -1,5 +1,8 @@
 import optuna
 import torch
+import os
+import sys
+sys.path.append(os.getcwd())
 import numpy as np
 import pickle
 import torch.nn as nn
