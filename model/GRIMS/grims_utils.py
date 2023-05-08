@@ -57,8 +57,8 @@ def grims_obj(trial):
     # hyperparameters selection with optuna
     args.opt = trial.suggest_categorical("optimizer", ["RMSprop", "SGD", "Adam"])
     args.lr = trial.suggest_float("learning_rate", 1e-5, 1e-1, log=True)
-    args.batch_size = trial.suggest_int("batch_size", 2, 32,step=2)
-    args.epoch_num = trial.suggest_int("epoch_num",5,20)
+    args.batch_size = trial.suggest_int("batch_size", 4, 32,step=4)
+    args.epoch_num = trial.suggest_int("epoch_num",5,200)
 
     # data prepare
     train_valid_array = np.load('./data/meta/train_valid.npy')

@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 from clstp.dataio import read_set_file, stp_dataloader
-from clstp.utils import Args, data_divide, search_group_track_pos, stp_encoder
+from clstp.utils import Args, data_divide, search_group_track_pos, stp_poolingnet, make_mlp
 
 
 class pnr_net(nn.Module):
@@ -14,31 +14,72 @@ class pnr_net(nn.Module):
         self.pre_length = args.pre_length
         self.hidden_size = args.hidden_size
         self.rnn_type = 0
-        self.encoder = stp_encoder(args=args)
+        self.PoolingNet = stp_poolingnet(args=args)
+        self.pre_mlp_hidden_size = args.pre_mlp_hidden_size
 
         self.embadding = nn.Linear(in_features=2,out_features=self.embadding_size)
         if self.rnn_type:
-            self.rnn = nn.LSTM(input_size=self.embadding_size,hidden_size=self.hidden_size)
+            self.encoder = nn.LSTM(input_size=self.embadding_size,hidden_size=self.hidden_size)
+            self.decoder = nn.LSTM(input_size=self.embadding_size,hidden_size=self.hidden_size)
         else:
-            self.rnn = nn.GRU(input_size=self.embadding_size,hidden_size=self.hidden_size)
+            self.encoder = nn.GRU(input_size=self.embadding_size,hidden_size=self.hidden_size)
+            self.decoder = nn.GRU(input_size=self.embadding_size,hidden_size=self.hidden_size)
         
         self.deembadding = nn.Linear(in_features=self.hidden_size,out_features=2)
-    
+        
+        dim_list = [self.hidden_size,self.pre_mlp_hidden_size,2]
+        self.pre_mlp = make_mlp(dim_list,batch_norm=False)
+
     def forward(self,group_track):
-        pre_track = torch.clone(group_track[0])
 
-        seq = self.embadding(group_track)
-        out,state_tuple = self.rnn(seq)
-        pos = self.deembadding(out[-1])
+        group_hidden,group_state = self.group_encode(group_track)
+        group_state = self.social_poolingNet(group_hidden,group_state,group_track) # [batch,hidden_size]
 
-        pre_track = torch.concat((pre_track,pos.unsqueeze(0)),dim=0)
-        for _ in range(self.pre_length-1):
-            next_input = self.embadding(pos)
-            out,state_tuple = self.rnn(next_input.unsqueeze(0),state_tuple)
-            pos = self.deembadding(out[-1])
-            pre_track = torch.concat((pre_track,pos.unsqueeze(0)),dim=0)
+        for _ in range(self.pre_length):
+            group_state,group_track = self.group_decode(group_state,group_track)
 
-        return pre_track
+        return group_track[0]
+    
+    def social_poolingNet(self,group_hidden,group_state,group_track):
+        group_hidden = self.PoolingNet(group_hidden,group_track)
+        GS = []
+        if self.rnn_type:
+            for idx in range(len(group_state)):
+                GS.append((group_hidden[idx],group_state[idx][1]))
+        else:
+            for idx in range(len(group_state)):
+                GS.append(group_hidden[idx])
+        return GS
+
+    def group_encode(self,group_track):
+        group_ST = []
+        HS = []
+        for track in group_track:
+            track_code,state_tuple = self.encoder(self.embadding(track))
+            hidden = track_code[-1]
+            group_ST.append(state_tuple)
+            HS.append(hidden)
+        hidden_state = torch.stack(HS,dim=0)
+        return hidden_state,group_ST
+    
+    def group_decode(self,group_state,group_track):
+        GS = []
+        GT = []
+        if self.rnn_type:
+            for idx in range(len(group_state)):
+                hidden,state_tuple = self.decoder(self.embadding(group_track[idx][-1].unsqueeze(0)),(group_state[idx][0].unsqueeze(0),group_state[idx][1]))
+                pos = self.pre_mlp(hidden)
+                GT.append(torch.concat((group_track[idx],pos),dim=0))
+                GS.append((group_state[idx][0].squeeze(),group_state[idx][1]))
+        else:
+            for idx in range(len(group_state)):
+                hidden,state_tuple = self.decoder(self.embadding(group_track[idx][-1].unsqueeze(0)),group_state[idx].unsqueeze(0))
+                pos = self.pre_mlp(hidden)
+                GT.append(torch.concat((group_track[idx],pos),dim=0))
+                GS.append(state_tuple.squeeze())
+
+        return GS,GT
+
     
 def pnr_obj(trial):
     args = Args()
@@ -53,13 +94,16 @@ def pnr_obj(trial):
     args.model_name = 'PNR'
     args.embadding_size = trial.suggest_int("embadding_size", 8, 128,step=8)
     args.hidden_size = trial.suggest_int("hidden_size", 32, 512,step=16)
+    args.PNMLP_hidden_size = trial.suggest_int("PNMLP_hidden_size", 32, 1024,step=32)
+    args.pre_mlp_hidden_size = trial.suggest_int("pre_mlp_hidden_size", 32, 1024,step=32)
     args.pre_length = 12
 
     # hyperparameters selection with optuna
     args.opt = trial.suggest_categorical("optimizer", ["RMSprop", "SGD", "Adam"])
     args.lr = trial.suggest_float("learning_rate", 1e-5, 1e-1, log=True)
-    args.batch_size = trial.suggest_int("batch_size", 2, 32,step=2)
-    args.epoch_num = trial.suggest_int("epoch_num",5,20)
+    args.batch_size = trial.suggest_int("batch_size", 4, 32,step=4)
+    args.epoch_num = trial.suggest_int("epoch_num",5,200)
+    # args.epoch_num = 3
 
     # data prepare
     train_valid_array = np.load('./data/meta/train_valid.npy')
@@ -111,11 +155,13 @@ def train(net,train_loader,criterion,optimizer,args,set_file_list):
         optimizer.zero_grad()
         for idx,meta_item in enumerate(batched_meta):
             set_file = set_file_list[meta_item[0].item()]
+            group_track_input = search_group_track_pos(meta_item,set_file,fram_num=8,device=args.device)
             group_track_target = search_group_track_pos(meta_item,set_file,fram_num=20,device=args.device)
 
             # forward
-            out = net(group_track_target[0][:8])
+            out = net(group_track_input)
             loss = criterion(group_track_target[0][8:],out[8:])
+            # print(loss.item())
 
             loss.backward()
         optimizer.step()
@@ -128,10 +174,11 @@ def valid(net,valid_loader,criterion,set_file_list,device):
         for _,batched_one_meta in enumerate(valid_loader):
             meta_item = batched_one_meta[0]
             set_file = set_file_list[meta_item[0].item()]
+            group_track_input = search_group_track_pos(meta_item,set_file,fram_num=8,device=device)
             group_track_target = search_group_track_pos(meta_item,set_file,fram_num=20,device=device)
             
             # forward
-            out = net(group_track_target[0][:8])
+            out = net(group_track_input)
             loss = criterion(group_track_target[0][-1],out[-1])
 
             loss_tensor = torch.tensor([loss.item()])
@@ -148,10 +195,11 @@ def test(net,test_loader,criterion,set_file_list,device=torch.device('cpu')):
         for item_idx,batched_one_meta in enumerate(test_loader):
             meta_item = batched_one_meta[0]
             set_file = set_file_list[meta_item[0].item()]
+            group_track_input = search_group_track_pos(meta_item,set_file,fram_num=8,device=device)
             group_track_target = search_group_track_pos(meta_item,set_file,fram_num=20,device=device)
 
             # forward
-            out = net(group_track_target[0][:8])
+            out = net(group_track_input)
             loss = criterion(group_track_target[0][-1],out[-1])
 
             error[item_idx,0] = meta_item[0].item()
