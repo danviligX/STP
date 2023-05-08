@@ -7,9 +7,9 @@ from clstp.dataio import read_set_file, stp_dataloader
 from clstp.utils import Args, data_divide, search_group_track_pos
 
 
-class rnnims_net(nn.Module):
+class lrrms_net(nn.Module):
     def __init__(self,args) -> None:
-        super(rnnims_net,self).__init__()
+        super(lrrms_net,self).__init__()
         self.embadding_size = args.embadding_size
         self.pre_length = args.pre_length
         self.hidden_size = args.hidden_size
@@ -38,7 +38,7 @@ class rnnims_net(nn.Module):
             out = torch.concat((out,pos.unsqueeze(0)),dim=0)
         return out
     
-def rnnims_obj(trial):
+def lrrms_obj(trial):
     args = Args()
 
     # cuda
@@ -48,7 +48,7 @@ def rnnims_obj(trial):
         args.device = torch.device("cpu")
 
     # net initialization parameters
-    args.model_name = 'RNNIMS'
+    args.model_name = 'LRRMS'
     args.embadding_size = trial.suggest_int("embadding_size", 8, 128,step=8)
     args.hidden_size = trial.suggest_int("hidden_size", 32, 512,step=16)
     args.pre_length = 12
@@ -64,7 +64,7 @@ def rnnims_obj(trial):
     train_validation_idx = data_divide(train_valid_array,para=10)
     set_file_list = read_set_file()
 
-    net = rnnims_net(args=args).to(device=args.device)
+    net = lrrms_net(args=args).to(device=args.device)
     opt = getattr(torch.optim, args.opt)(net.parameters(), lr=args.lr)
     criterion = nn.MSELoss()
 
