@@ -15,6 +15,101 @@ class Args(object):
     def __init__(self) -> None:
         pass
 
+class stp_encoder(nn.Module):
+    '''
+    single core
+    input:
+        history_track: list of array, shape = [length,2]
+    output:
+        hidden_state: encoded sequences, size=[1,batch,hidden_size]
+        cell_state: if use LSTM, size=[1,batch,hidden_size]
+    '''
+    def __init__(self, args):
+        super(stp_encoder,self).__init__()
+        self.embadding_size = args.embadding_size
+        self.hidden_size = args.hidden_size
+        self.rnn_type = args.rnn_type
+
+        self.embadding = nn.Linear(in_features=2,out_features=self.embadding_size)
+
+        if self.rnn_type:
+            self.rnn = nn.LSTM(input_size = self.embadding_size,hidden_size = self.hidden_size,num_layers = 1)
+        else:
+            self.rnn = nn.GRU(input_size = self.embadding_size,hidden_size = self.hidden_size,num_layers = 1)
+
+    def encode(self,input_batch):
+        x = self.embadding(input_batch)
+
+        if self.ifgru:
+            _,state_tuple = self.rnn(x)
+            return state_tuple
+        else:
+            _,state_tuple = self.rnn(x)
+            return state_tuple
+
+    def forward(self,group_track):
+        HS = []
+        if self.rnn_type == 0:
+            for track in group_track:
+                track_code = self.encode(track)
+                HS.append(track_code)
+            hidden_state = torch.stack(HS,dim=1)
+            return hidden_state
+        else:
+            CS = []
+            for track in group_track:
+                track_code = self.encode(track)
+                HS.append(track_code[0])
+                CS.append(track_code[1])
+            hidden_state = torch.stack(HS,dim=1)
+            cell_state = torch.stack(CS,dim=1)
+
+            return hidden_state,cell_state
+
+class stp_poolingnet(nn.Module):
+    '''
+    single core
+    input: 
+        group_track: shape = [length,2]
+        hidden_state: size=[1,batch,hidden_size]
+    output:
+        socail_hidden: for decoder to generate a sequence, size=[1,batch,hidden_size]
+    '''
+    def __init__(self, args) -> None:
+        super(stp_poolingnet,self).__init__()
+        self.hidden_size = args.hidden_size
+        self.embdding_size = args.embadding_size
+        self.mlp_hidden_size = args.PNMLP_hidden_size
+        
+        self.embadding = nn.Linear(in_features=2,out_features=self.embdding_size)
+        dim_list = [self.embdding_size+self.hidden_size,self.mlp_hidden_size,self.hidden_size]
+        self.mlp = make_mlp(dim_list)
+    
+    def pooling_one(self,hidden_state,group_track,center_idx_local):
+        # calculate relative end position
+        center_pos_end = group_track[center_idx_local][-1]
+        rel_nei_end_pos = []
+        for track in group_track:
+            rel_end_pos = track[-1] - center_pos_end
+            rel_nei_end_pos.append(rel_end_pos)
+        REP = torch.stack(rel_nei_end_pos,dim=0)
+        
+        real_pos_track_embdding = self.embadding(REP)
+        real_pos_track_embdding = torch.unsqueeze(real_pos_track_embdding,dim=0)
+        mlp_input = torch.concatenate((hidden_state,real_pos_track_embdding),dim=2)[0]
+        out = self.mlp(mlp_input)
+        out = out.max(0)[0]
+        return out
+    
+    def forward(self,hidden_state,group_track):
+        group_pooling_hidden = []
+        for center_idx_local in range(len(group_track)):
+            pooling_hidden = self.pooling_one(hidden_state,group_track,center_idx_local)
+            group_pooling_hidden.append(pooling_hidden)
+        GPH = torch.stack(group_pooling_hidden,dim=0)
+
+        return torch.unsqueeze(GPH,0)
+
 def data_preprocess(
         raw_folder_path='./data/raw/',
         set_folder_path='./data/set/',
