@@ -33,7 +33,7 @@ class stp_poolingnet(nn.Module):
         self.embadding = nn.Linear(in_features=2,out_features=self.embdding_size)
 
         dim_list = [self.embdding_size+self.hidden_size,self.mlp_hidden_size,self.hidden_size]
-        self.mlp = make_mlp(dim_list)
+        self.mlp = make_mlp(dim_list,batch_norm=False)
     
     def pooling_one(self,hidden_state,group_track,center_idx_local):
         # calculate relative end position
@@ -59,6 +59,88 @@ class stp_poolingnet(nn.Module):
 
         return GPH
 
+class stp_attention_pooling(nn.Module):
+    '''
+    single core
+    input: 
+        group_track: shape = [length,2]
+        hidden_state: size=[1,batch,hidden_size]
+    output:
+        socail_hidden: for decoder to generate a sequence, size=[batch,hidden_size]
+    '''
+    def __init__(self, args) -> None:
+        super(stp_attention_pooling,self).__init__()
+        self.hidden_size = args.hidden_size
+        self.embdding_size = args.embadding_size
+        self.mlp_hidden_size = args.PNMLP_hidden_size
+        self.rel_mlp_hidden_size = args.rel_mlp_hidden_size
+        self.abs_mlp_hidden_size = args.abs_mlp_hidden_size
+        self.attention_mlp_hidden_size = args.attention_mlp_hidden_size
+        
+        
+        self.embadding = nn.Linear(in_features=2,out_features=self.embdding_size)
+
+        dim_list = [self.embdding_size+self.hidden_size,self.mlp_hidden_size,self.hidden_size]
+        self.mlp = make_mlp(dim_list)
+
+        # attention mlp
+        rel_dim_list = [2,self.rel_mlp_hidden_size,1]
+        abs_dim_list = [2,self.abs_mlp_hidden_size,1]
+        attention_dim_list = [4,self.attention_mlp_hidden_size,1]
+
+        self.rel_mlp = make_mlp(rel_dim_list,batch_norm=False)
+        self.abs_mlp = make_mlp(abs_dim_list,batch_norm=False)
+        self.attention_mlp = make_mlp(attention_dim_list,batch_norm=False)
+
+        self.softmax = nn.Softmax(dim=1)
+    
+    def attention_matrix_line(self,hidden_state,group_track,center_idx_local):
+        if len(hidden_state) == 1: return hidden_state
+
+        # calculate relative end position
+        center_pos_end = group_track[center_idx_local][-1]
+        center_pos_bfend = group_track[center_idx_local][-2]
+
+        rel_nei_end_pos = []
+        rel_nei_bfend_pos = []
+        abs_nei_end_pos = []
+        abs_center_end_pos = []
+        for track in group_track:
+            rel_end_pos = track[-1] - center_pos_end
+            rel_bfend_pos = track[-2] - center_pos_bfend
+            rel_nei_end_pos.append(rel_end_pos)
+            rel_nei_bfend_pos.append(rel_bfend_pos)
+            abs_nei_end_pos.append(track[-1])
+            abs_center_end_pos.append(center_pos_end) # clone the position
+
+        REP = torch.stack(rel_nei_end_pos,dim=0) # relative end position
+        RBEP = torch.stack(rel_nei_bfend_pos,dim=0) # relative penultimate position
+        RV = REP - RBEP # relative velocity
+        ANP = torch.stack(abs_nei_end_pos,dim=0) # abstract neighors position
+        ACP = torch.stack(abs_center_end_pos,dim=0) # abstract center position
+
+        rel_fea = torch.stack((REP,RV),dim=0) # [feature_num,batch,feature_size], [2,nei_num,2]
+        abs_fea = torch.stack((ANP,ACP),dim=0)
+
+        # attention weight calculation
+        rel_attention = self.rel_mlp(rel_fea)
+        abs_attention = self.abs_mlp(abs_fea)
+        attention_fea = torch.concat((rel_attention,abs_attention),dim=0).transpose(0,2)
+        metrc_dis = self.attention_mlp(attention_fea).squeeze().unsqueeze(0) # [1,nei_num]
+        metrc_dis = self.softmax(metrc_dis)
+
+        out = torch.matmul(metrc_dis,hidden_state) # [1,hidden_size]
+        return out
+    
+    def forward(self,hidden_state,group_track):
+        group_pooling_hidden = []
+        for center_idx_local in range(len(group_track)):
+            pooling_hidden = self.attention_matrix_line(hidden_state,group_track,center_idx_local)
+            group_pooling_hidden.append(pooling_hidden)
+        GPH = torch.concat(group_pooling_hidden,dim=0)
+
+        return GPH
+    
 def data_preprocess(
         raw_folder_path='./data/raw/',
         set_folder_path='./data/set/',
@@ -212,7 +294,8 @@ def search_group_track_pos(meta_item,set_file,device=torch.device('cpu'),fram_nu
     group_track = [group_track]
     for pidx in pidx_neighbor_array:
         track,_ = search_track_pos(meta_item,set_file,pidx,device=device)
-        group_track.append(track)
+        if len(track) > 1:
+            group_track.append(track)
         
     meta_item[3] = meta_item[2] + 20
     return group_track
