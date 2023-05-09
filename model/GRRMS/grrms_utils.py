@@ -78,23 +78,24 @@ def grrms_obj(trial):
                                                               valid_item_idx=valid_item_idx,
                                                               batch_size=args.batch_size)
     
+    ESS = 0
     for epoch in range(args.epoch_num):
         net = train(net=net,train_loader=train_loader,criterion=criterion,
                     optimizer=opt,args=args,set_file_list=set_file_list)
 
         epoch_error,_ = valid(net,valid_loader,criterion,set_file_list,device=args.device)
-        print('trial:{}, epoch:{}, loss:{}'.format(trial.number,epoch,epoch_error.item()))
+        
+        if epoch%5==0:
+            print('trial:{}, epoch:{}, loss:{}'.format(trial.number,epoch,epoch_error.item()))
+            if ESS == epoch_error.item(): raise optuna.exceptions.TrialPruned()
+            ESS = epoch_error.item()
 
         valid_error = torch.concat((valid_error,epoch_error))
         trial.report(epoch_error.item(),epoch)
-        if epoch_error > 1000:
-            raise optuna.exceptions.TrialPruned()
-        if trial.should_prune():
-            raise optuna.exceptions.TrialPruned()
-        if torch.isnan(epoch_error).any():
-            raise optuna.exceptions.TrialPruned()
-        if torch.isinf(epoch_error).any():
-            raise optuna.exceptions.TrialPruned()
+        if epoch_error > 1000: raise optuna.exceptions.TrialPruned()
+        if trial.should_prune(): raise optuna.exceptions.TrialPruned()
+        if torch.isnan(epoch_error).any(): raise optuna.exceptions.TrialPruned()
+        if torch.isinf(epoch_error).any(): raise optuna.exceptions.TrialPruned()
 
     optuna_error = valid_error.mean()
 
