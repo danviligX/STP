@@ -10,34 +10,134 @@ from clstp.utils import Args, data_divide, search_group_track_pos
 class mpp_net(nn.Module):
     def __init__(self,args) -> None:
         super(mpp_net,self).__init__()
+        self.args = args
         self.embadding_size = args.embadding_size
         self.pre_length = args.pre_length
         self.hidden_size = args.hidden_size
-        self.rnn_type = 0
+        self.h2e_size = args.h2e_size
+        self.max_nei_dis = args.max_nei_dis
+        self.input_len = 8
+        self.rnn_type = 1
 
         self.embadding = nn.Linear(in_features=2,out_features=self.embadding_size)
+        self.hidden2embadding = nn.Linear(in_features=self.hidden_size,out_features=self.h2e_size)
+
         if self.rnn_type:
-            self.rnn = nn.LSTM(input_size=self.embadding_size,hidden_size=self.hidden_size)
+            self.cell = nn.LSTMCell(input_size=2*self.embadding_size,hidden_size=self.hidden_size)
         else:
-            self.rnn = nn.GRU(input_size=self.embadding_size,hidden_size=self.hidden_size)
+            self.cell = nn.GRUCell(input_size=2*self.embadding_size,hidden_size=self.hidden_size)
         
         self.deembadding = nn.Linear(in_features=self.hidden_size,out_features=2)
     
-    def forward(self,his_track):
-        pre_track = torch.clone(his_track)
+    def forward(self,group_track):
+        cell_state = self.group_encode(group_track)
+        if self.rnn_type:
+            hidden = cell_state[0]
+        else:
+            hidden = cell_state
+        
+        for _ in range(self.pre_length):
+            Cel_Input = []
+            for center_idx in range(len(group_track)):
+                S_hidden = self.decode_social_pooling(hidden=hidden,group_track=group_track,center_idx=center_idx)
+                pos_emabadding = self.embadding(group_track[center_idx][-1])
 
-        seq = self.embadding(his_track)
-        out,state_tuple = self.rnn(seq)
-        pos = self.deembadding(out[-1])
+                cell_input = torch.concat((pos_emabadding,S_hidden),dim=1)
+                Cel_Input.append(cell_input)
+            
+            Cel_Input = torch.concat(Cel_Input,dim=0)
+            cell_state = self.cell(Cel_Input,cell_state)
 
-        pre_track = torch.concat((pre_track,pos.unsqueeze(0)),dim=0)
-        for _ in range(self.pre_length-1):
-            next_input = self.embadding(pos)
-            out,state_tuple = self.rnn(next_input.unsqueeze(0),state_tuple)
-            pos = self.deembadding(out[-1])
-            pre_track = torch.concat((pre_track,pos.unsqueeze(0)),dim=0)
+            if self.rnn_type:
+                hidden = cell_state[0]
+            else:
+                hidden = cell_state
 
-        return pre_track
+            pos = self.deembadding(hidden)
+            T = []
+            for idx,track in enumerate(group_track):
+                track = torch.concat((track,pos[idx]),dim=0)
+                T.append(track)
+            group_track = T
+
+        return group_track
+    
+    def group_encode(self,group_track):
+        init_pos = []
+        for track in group_track:
+            init_pos.append(track[0])
+        init_pos = torch.concat(init_pos,dim=0)
+
+        pos_embadding = self.embadding(init_pos)
+        zero_init_ten = torch.zeros_like(pos_embadding)
+        cell_state = self.cell(torch.concat((pos_embadding,zero_init_ten),dim=1))
+
+        # [num,hidden_size], used for iteration
+        if self.rnn_type:
+            IS = cell_state[0]
+        else:
+            IS = cell_state
+
+        S_hidden = torch.clone(IS) # Social hidden state of last one time step
+        for frame_idx in range(group_track[0]-1):
+            # pick neighbors out 
+            NEI = []
+            for nei_idx in range(len(group_track)):
+                if len(group_track[nei_idx]) >= 8 - frame_idx: NEI.append(nei_idx)
+            
+            # update the neighors' social hidden state
+            NEI_pos = []
+            for nei_idx in NEI:
+                nei_frame_idx = self.input_len - len(group_track[nei_idx]) + frame_idx
+                nei_pos = group_track[nei_idx][nei_frame_idx]
+                IS[nei_idx] = self.encode_social_pooling(center_pos=nei_pos,hidden=S_hidden,group_track=group_track,
+                                                  NEI=NEI,frame_idx=nei_frame_idx)
+                NEI_pos.append(nei_pos)
+
+            NEI_pos = torch.concat(NEI_pos,dim=0)
+            pos_embadding = self.embadding(NEI_pos)
+            cell_input = torch.concat((pos_embadding,IS[NEI]),dim=1)
+
+            # mask for cell_state
+            if self.rnn_type:
+                masked_cell_state = (cell_state[0][NEI],cell_state[1][NEI])
+                masked_cell_state = self.cell(cell_input,masked_cell_state)
+                cell_state[0][NEI] = masked_cell_state[0]
+                cell_state[1][NEI] = masked_cell_state[1]
+                S_hidden = cell_state[0]
+            else:
+                masked_cell_state = cell_state[NEI]
+                masked_cell_state = self.cell(cell_input,masked_cell_state)
+                cell_state[NEI] = masked_cell_state
+                S_hidden = cell_state
+            
+        return cell_state
+
+    def encode_social_pooling(self,center_pos,hidden,group_track,NEI,frame_idx):
+        '''
+        Pooling socail hidden_state into the center's hidden
+        input:
+            frame_idx: the center_pos frame_idx, to calculate the neighbors' frame_idx
+        output:
+            SH.sum(dim=0): mean pooling hidden_state, [1,hidden_size]
+        '''
+        social_hidden = []
+        for nei_idx in NEI:
+            nei_frame_idx = self.input_len - len(group_track[nei_idx]) + frame_idx
+            rel_pos = group_track[nei_idx][nei_frame_idx] - center_pos
+            if torch.norm(rel_pos).item() < self.max_nei_dis: social_hidden.append(hidden[nei_idx])
+        SH = torch.concat(social_hidden,dim=0)
+        return SH.sum(dim=0)
+    
+    def decode_social_pooling(self,hidden,group_track,center_idx):
+        center_pos = group_track[center_idx][-1]
+        SH = []
+        for idx,track in enumerate(group_track):
+            rel_pos = track[-1] - center_pos
+            if torch.norm(rel_pos) < self.max_nei_dis: SH.append(hidden[idx])
+        S_hidden = torch.concat(SH,dim=0)
+
+        return S_hidden.sum(dim=1)
     
 def mpp_obj(trial):
     args = Args()

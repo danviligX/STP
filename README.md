@@ -13,7 +13,8 @@ Networks:
 1. Linear: Linear DMS
 1. LRRMS: LSTM RNN RMS
 1. MLP: MLP DMS
-1. MPP: Max-pooling per time step, IMS
-1. MPR: Max-pooling RNN, pooling once after encode, IMS
+1. MPP: Mean pooling per time step, IMS
+1. MPR: Mean pooling RNN, pooling once after encode, IMS
 1. PNR: Pooling net, pooling once after encode, IMS
 1. SA: Social Attention Pooling, IMS
+1. SN: Stereoscopic network

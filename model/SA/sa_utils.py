@@ -100,7 +100,6 @@ def sa_obj(trial):
     args.model_name = 'SA'
     args.embadding_size = trial.suggest_int("embadding_size", 8, 128,step=8)
     args.hidden_size = trial.suggest_int("hidden_size", 32, 512,step=16)
-    args.PNMLP_hidden_size = trial.suggest_int("PNMLP_hidden_size", 32, 1024,step=32)
     args.pre_mlp_hidden_size = trial.suggest_int("pre_mlp_hidden_size", 32, 1024,step=32)
     args.pre_length = 12
 

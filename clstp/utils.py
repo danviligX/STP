@@ -72,16 +72,11 @@ class stp_attention_pooling(nn.Module):
         super(stp_attention_pooling,self).__init__()
         self.hidden_size = args.hidden_size
         self.embdding_size = args.embadding_size
-        self.mlp_hidden_size = args.PNMLP_hidden_size
         self.rel_mlp_hidden_size = args.rel_mlp_hidden_size
         self.abs_mlp_hidden_size = args.abs_mlp_hidden_size
         self.attention_mlp_hidden_size = args.attention_mlp_hidden_size
         
-        
         self.embadding = nn.Linear(in_features=2,out_features=self.embdding_size)
-
-        dim_list = [self.embdding_size+self.hidden_size,self.mlp_hidden_size,self.hidden_size]
-        self.mlp = make_mlp(dim_list)
 
         # attention mlp
         rel_dim_list = [2,self.rel_mlp_hidden_size,1]
