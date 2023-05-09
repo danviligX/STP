@@ -9,3 +9,4 @@ com.ipbnb
 **/*.miarg
 **/*.model
 **/*_study.pkl
+**/*.log

@@ -1,1 +1,1 @@
-python scripts/option_SGAN.py
+nohup python scripts/option_LRRMS.py > LRRMS.log 2>&1 &
