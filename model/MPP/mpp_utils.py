@@ -29,28 +29,29 @@ class mpp_net(nn.Module):
     def forward(self,group_track):
         cell_state = self.group_encode(group_track)
         if self.rnn_type:
-            hidden = cell_state[0]
+            hidden = torch.clone(cell_state[0])
         else:
-            hidden = cell_state
+            hidden = torch.clone(cell_state)
         
         for _ in range(self.pre_length):
             Cel_Input = []
             for center_idx in range(len(group_track)):
                 S_hidden = self.decode_social_pooling(hidden=hidden,group_track=group_track,center_idx=center_idx)
-                pos_emabadding = self.embadding(group_track[center_idx][-1])
+                pos_emabadding = self.embadding(group_track[center_idx][-1]).unsqueeze(0)
 
-                cell_input = torch.concat((pos_emabadding.unsqueeze(0),S_hidden),dim=1)
+                cell_input = torch.concat((pos_emabadding,S_hidden),dim=1)
                 Cel_Input.append(cell_input)
             
             Cel_Input = torch.concat(Cel_Input,dim=0)
             cell_state = self.cell(Cel_Input,cell_state)
 
             if self.rnn_type:
-                hidden = cell_state[0]
+                hidden = torch.clone(cell_state[0])
             else:
-                hidden = cell_state
+                hidden = torch.clone(cell_state)
 
             pos = self.deembadding(hidden)
+
             T = []
             for idx,track in enumerate(group_track):
                 track = torch.concat((track,pos[idx].unsqueeze(0)),dim=0)
@@ -72,13 +73,12 @@ class mpp_net(nn.Module):
 
         # [num,hidden_size], used for iteration
         if self.rnn_type:
-            IS = cell_state[0]
+            # IS = cell_state[0]
             S_hidden = cell_state[0]
         else:
-            IS = cell_state
+            # IS = cell_state
             S_hidden = cell_state
 
-        # S_hidden = torch.clone(IS) # Social hidden state of last one time step
         for frame_idx in range(self.input_len-1):
             # pick neighbors out 
             NEI = []
@@ -87,31 +87,53 @@ class mpp_net(nn.Module):
             
             # update the neighors' social hidden state
             NEI_pos = []
+            NEI_sh = []
             for nei_idx in NEI:
-                nei_frame_idx = self.input_len - len(group_track[nei_idx]) + frame_idx
+                nei_frame_idx = len(group_track[nei_idx]) - self.input_len + frame_idx
                 nei_pos = group_track[nei_idx][nei_frame_idx]
-                IS[nei_idx] = self.encode_social_pooling(center_pos=nei_pos,hidden=S_hidden,group_track=group_track,
-                                                  NEI=NEI,frame_idx=nei_frame_idx)
+                single_social_h = self.encode_social_pooling(center_pos=nei_pos,hidden=S_hidden,group_track=group_track,
+                                                  NEI=NEI,frame_idx=frame_idx)
+                NEI_sh.append(single_social_h)
                 NEI_pos.append(nei_pos)
 
             NEI_pos = torch.stack(NEI_pos,dim=0)
+            used_h = torch.concat(NEI_sh,dim=0)
             pos_embadding = self.embadding(NEI_pos)
-            cell_input = torch.concat((pos_embadding,IS[NEI]),dim=1)
+            cell_input = torch.concat((pos_embadding,used_h),dim=1)
 
             # mask for cell_state
             if self.rnn_type:
                 masked_cell_state = (cell_state[0][NEI],cell_state[1][NEI])
                 masked_cell_state = self.cell(cell_input,masked_cell_state)
-                cell_state[0][NEI] = masked_cell_state[0]
-                cell_state[1][NEI] = masked_cell_state[1]
+
+                h_state = self.cell_state_concat(masked_cell_state[0],cell_state[0],NEI)
+                c_state = self.cell_state_concat(masked_cell_state[1],cell_state[1],NEI)
+
+                cell_state = (h_state,c_state)
                 S_hidden = cell_state[0]
             else:
                 masked_cell_state = cell_state[NEI]
                 masked_cell_state = self.cell(cell_input,masked_cell_state)
-                cell_state[NEI] = masked_cell_state
+                h_state = self.cell_state_concat(masked_cell_state,cell_state,NEI)
+                cell_state = h_state
                 S_hidden = cell_state
             
         return cell_state
+    
+    def cell_state_concat(self,masked_cell_state,cell_state,NEI):
+        '''
+        take GRU cell_state as example
+        '''
+        CS = []
+        for idx in range(len(cell_state)):
+            if idx not in NEI: 
+                CS.append(cell_state[idx])
+            else:
+                idx_local = torch.argwhere(torch.tensor(NEI) == idx)
+                CS.append(masked_cell_state[idx_local].squeeze())
+
+        CS = torch.stack(CS,dim=0)
+        return CS
 
     def encode_social_pooling(self,center_pos,hidden,group_track,NEI,frame_idx):
         '''
@@ -123,19 +145,20 @@ class mpp_net(nn.Module):
         '''
         social_hidden = []
         for nei_idx in NEI:
-            nei_frame_idx = self.input_len - len(group_track[nei_idx]) + frame_idx
-            print('nei_idx:{},nei_frame_idx:{},len_gourp_track:{}'.format(nei_idx,nei_frame_idx,len(group_track)))
+            nei_frame_idx = len(group_track[nei_idx]) - self.input_len + frame_idx
             rel_pos = group_track[nei_idx][nei_frame_idx] - center_pos
-            if torch.norm(rel_pos).item() < self.max_nei_dis: social_hidden.append(hidden[nei_idx])
-        SH = torch.concat(social_hidden,dim=0)
-        return SH.sum(dim=0)
+            rel_dis = torch.norm(rel_pos).item()
+            if rel_dis < self.max_nei_dis: social_hidden.append(hidden[nei_idx])
+        SH = torch.stack(social_hidden,dim=0)
+        return SH.sum(dim=0).unsqueeze(0)
     
     def decode_social_pooling(self,hidden,group_track,center_idx):
         center_pos = group_track[center_idx][-1]
         SH = []
         for idx,track in enumerate(group_track):
             rel_pos = track[-1] - center_pos
-            if torch.norm(rel_pos) < self.max_nei_dis: SH.append(hidden[idx])
+            rel_dis = torch.norm(rel_pos).item()
+            if rel_dis < self.max_nei_dis: SH.append(hidden[idx])
         S_hidden = torch.stack(SH,dim=0)
 
         return S_hidden.sum(dim=0).unsqueeze(0)
@@ -160,6 +183,7 @@ def mpp_obj(trial):
     args.lr = trial.suggest_float("learning_rate", 1e-5, 1e-1, log=True)
     args.batch_size = trial.suggest_int("batch_size", 4, 32,step=4)
     args.epoch_num = trial.suggest_int("epoch_num",5,200)
+    # args.epoch_num = 3
 
     # data prepare
     train_valid_array = np.load('./data/meta/train_valid.npy')
