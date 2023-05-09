@@ -6,7 +6,6 @@ import torch.nn as nn
 from clstp.dataio import read_set_file, stp_dataloader
 from clstp.utils import Args, data_divide, search_group_track_pos
 
-
 class mpp_net(nn.Module):
     def __init__(self,args) -> None:
         super(mpp_net,self).__init__()
@@ -14,18 +13,16 @@ class mpp_net(nn.Module):
         self.embadding_size = args.embadding_size
         self.pre_length = args.pre_length
         self.hidden_size = args.hidden_size
-        self.h2e_size = args.h2e_size
-        self.max_nei_dis = args.max_nei_dis
+        self.max_nei_dis = 5
         self.input_len = 8
         self.rnn_type = 1
 
         self.embadding = nn.Linear(in_features=2,out_features=self.embadding_size)
-        self.hidden2embadding = nn.Linear(in_features=self.hidden_size,out_features=self.h2e_size)
 
         if self.rnn_type:
-            self.cell = nn.LSTMCell(input_size=2*self.embadding_size,hidden_size=self.hidden_size)
+            self.cell = nn.LSTMCell(input_size=self.hidden_size+self.embadding_size,hidden_size=self.hidden_size)
         else:
-            self.cell = nn.GRUCell(input_size=2*self.embadding_size,hidden_size=self.hidden_size)
+            self.cell = nn.GRUCell(input_size=self.hidden_size+self.embadding_size,hidden_size=self.hidden_size)
         
         self.deembadding = nn.Linear(in_features=self.hidden_size,out_features=2)
     
@@ -42,7 +39,7 @@ class mpp_net(nn.Module):
                 S_hidden = self.decode_social_pooling(hidden=hidden,group_track=group_track,center_idx=center_idx)
                 pos_emabadding = self.embadding(group_track[center_idx][-1])
 
-                cell_input = torch.concat((pos_emabadding,S_hidden),dim=1)
+                cell_input = torch.concat((pos_emabadding.unsqueeze(0),S_hidden),dim=1)
                 Cel_Input.append(cell_input)
             
             Cel_Input = torch.concat(Cel_Input,dim=0)
@@ -56,34 +53,37 @@ class mpp_net(nn.Module):
             pos = self.deembadding(hidden)
             T = []
             for idx,track in enumerate(group_track):
-                track = torch.concat((track,pos[idx]),dim=0)
+                track = torch.concat((track,pos[idx].unsqueeze(0)),dim=0)
                 T.append(track)
             group_track = T
 
-        return group_track
+        return group_track[0]
     
     def group_encode(self,group_track):
         init_pos = []
         for track in group_track:
             init_pos.append(track[0])
-        init_pos = torch.concat(init_pos,dim=0)
+        init_pos = torch.stack(init_pos,dim=0)
+        
 
         pos_embadding = self.embadding(init_pos)
-        zero_init_ten = torch.zeros_like(pos_embadding)
+        zero_init_ten = torch.zeros([len(group_track),self.hidden_size]).to(self.args.device)
         cell_state = self.cell(torch.concat((pos_embadding,zero_init_ten),dim=1))
 
         # [num,hidden_size], used for iteration
         if self.rnn_type:
             IS = cell_state[0]
+            S_hidden = cell_state[0]
         else:
             IS = cell_state
+            S_hidden = cell_state
 
-        S_hidden = torch.clone(IS) # Social hidden state of last one time step
-        for frame_idx in range(group_track[0]-1):
+        # S_hidden = torch.clone(IS) # Social hidden state of last one time step
+        for frame_idx in range(self.input_len-1):
             # pick neighbors out 
             NEI = []
             for nei_idx in range(len(group_track)):
-                if len(group_track[nei_idx]) >= 8 - frame_idx: NEI.append(nei_idx)
+                if len(group_track[nei_idx]) >= self.input_len - frame_idx: NEI.append(nei_idx)
             
             # update the neighors' social hidden state
             NEI_pos = []
@@ -94,7 +94,7 @@ class mpp_net(nn.Module):
                                                   NEI=NEI,frame_idx=nei_frame_idx)
                 NEI_pos.append(nei_pos)
 
-            NEI_pos = torch.concat(NEI_pos,dim=0)
+            NEI_pos = torch.stack(NEI_pos,dim=0)
             pos_embadding = self.embadding(NEI_pos)
             cell_input = torch.concat((pos_embadding,IS[NEI]),dim=1)
 
@@ -124,6 +124,7 @@ class mpp_net(nn.Module):
         social_hidden = []
         for nei_idx in NEI:
             nei_frame_idx = self.input_len - len(group_track[nei_idx]) + frame_idx
+            print('nei_idx:{},nei_frame_idx:{},len_gourp_track:{}'.format(nei_idx,nei_frame_idx,len(group_track)))
             rel_pos = group_track[nei_idx][nei_frame_idx] - center_pos
             if torch.norm(rel_pos).item() < self.max_nei_dis: social_hidden.append(hidden[nei_idx])
         SH = torch.concat(social_hidden,dim=0)
@@ -135,9 +136,9 @@ class mpp_net(nn.Module):
         for idx,track in enumerate(group_track):
             rel_pos = track[-1] - center_pos
             if torch.norm(rel_pos) < self.max_nei_dis: SH.append(hidden[idx])
-        S_hidden = torch.concat(SH,dim=0)
+        S_hidden = torch.stack(SH,dim=0)
 
-        return S_hidden.sum(dim=1)
+        return S_hidden.sum(dim=0).unsqueeze(0)
     
 def mpp_obj(trial):
     args = Args()
@@ -211,10 +212,11 @@ def train(net,train_loader,criterion,optimizer,args,set_file_list):
         optimizer.zero_grad()
         for idx,meta_item in enumerate(batched_meta):
             set_file = set_file_list[meta_item[0].item()]
+            group_track_input = search_group_track_pos(meta_item,set_file,fram_num=8,device=args.device)
             group_track_target = search_group_track_pos(meta_item,set_file,fram_num=20,device=args.device)
 
             # forward
-            out = net(group_track_target[0][:8])
+            out = net(group_track_input)
             loss = criterion(group_track_target[0][8:],out[8:])
 
             loss.backward()
@@ -228,10 +230,11 @@ def valid(net,valid_loader,criterion,set_file_list,device):
         for _,batched_one_meta in enumerate(valid_loader):
             meta_item = batched_one_meta[0]
             set_file = set_file_list[meta_item[0].item()]
+            group_track_input = search_group_track_pos(meta_item,set_file,fram_num=8,device=device)
             group_track_target = search_group_track_pos(meta_item,set_file,fram_num=20,device=device)
             
             # forward
-            out = net(group_track_target[0][:8])
+            out = net(group_track_input)
             loss = criterion(group_track_target[0][-1],out[-1])
 
             loss_tensor = torch.tensor([loss.item()])
@@ -248,10 +251,11 @@ def test(net,test_loader,criterion,set_file_list,device=torch.device('cpu')):
         for item_idx,batched_one_meta in enumerate(test_loader):
             meta_item = batched_one_meta[0]
             set_file = set_file_list[meta_item[0].item()]
+            group_track_input = search_group_track_pos(meta_item,set_file,fram_num=8,device=device)
             group_track_target = search_group_track_pos(meta_item,set_file,fram_num=20,device=device)
 
             # forward
-            out = net(group_track_target[0][:8])
+            out = net(group_track_input)
             loss = criterion(group_track_target[0][-1],out[-1])
 
             error[item_idx,0] = meta_item[0].item()
