@@ -33,7 +33,7 @@ class mpr_net(nn.Module):
         else:
             hidden = torch.clone(cell_state)
         
-        for _ in range(self.pre_length):
+        for _ in range(1):
             Cel_Input = []
             for center_idx in range(len(group_track)):
                 S_hidden = self.decode_social_pooling(hidden=hidden,group_track=group_track,center_idx=center_idx)
@@ -58,7 +58,7 @@ class mpr_net(nn.Module):
                 T.append(track)
             group_track = T
 
-        return group_track[0]
+        return group_track
     
     def group_encode(self,group_track):
         init_pos = []
@@ -182,8 +182,8 @@ def mpr_obj(trial):
     args.opt = trial.suggest_categorical("optimizer", ["RMSprop", "SGD", "Adam"])
     args.lr = trial.suggest_float("learning_rate", 1e-5, 1e-1, log=True)
     args.batch_size = trial.suggest_int("batch_size", 4, 32,step=4)
-    # args.epoch_num = trial.suggest_int("epoch_num",5,200)
-    args.epoch_num = 3
+    args.epoch_num = trial.suggest_int("epoch_num",5,50)
+    # args.epoch_num = 3
 
     # data prepare
     train_valid_array = np.load('./data/meta/train_valid.npy')
@@ -241,7 +241,8 @@ def train(net,train_loader,criterion,optimizer,args,set_file_list):
 
             # forward
             out = net(group_track_input)
-            loss = criterion(group_track_target[0][8:],out[8:])
+            # loss = criterion(group_track_target[0][8:],out[8:])
+            loss = criterion(group_track_target[0][9],out[0][-1].squeeze(0))
 
             loss.backward()
         optimizer.step()
@@ -258,8 +259,15 @@ def valid(net,valid_loader,criterion,set_file_list,device):
             group_track_target = search_group_track_pos(meta_item,set_file,fram_num=20,device=device)
             
             # forward
-            out = net(group_track_input)
-            loss = criterion(group_track_target[0][-1],out[-1])
+            # out = net(group_track_input)
+            # loss = criterion(group_track_target[0][-1],out[-1])
+
+            pre_his = torch.clone(group_track_target[0][:8])
+            for idx in range(12):
+                out = net(group_track_input)
+                pre_his = torch.concat((pre_his,out[0][-1].unsqueeze(0)),dim=0)
+
+            loss = criterion(group_track_target[0][-1],pre_his[-1])
 
             loss_tensor = torch.tensor([loss.item()])
             error = torch.concat((loss_tensor,error))
@@ -279,8 +287,15 @@ def test(net,test_loader,criterion,set_file_list,device=torch.device('cpu')):
             group_track_target = search_group_track_pos(meta_item,set_file,fram_num=20,device=device)
 
             # forward
-            out = net(group_track_input)
-            loss = criterion(group_track_target[0][-1],out[-1])
+            # out = net(group_track_input)
+            # loss = criterion(group_track_target[0][-1],out[-1])
+
+            pre_his = torch.clone(group_track_target[0][:8])
+            for idx in range(12):
+                out = net(group_track_input)
+                pre_his = torch.concat((pre_his,out[0][-1].unsqueeze(0)),dim=0)
+
+            loss = criterion(group_track_target[0][-1],pre_his[-1])
 
             error[item_idx,0] = meta_item[0].item()
             error[item_idx,1] = loss

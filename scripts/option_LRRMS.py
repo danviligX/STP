@@ -13,7 +13,7 @@ def main():
     model_name = 'LRRMS'
     save_path = ''.join(['./model/',model_name,'/',model_name,'_study.pkl'])
 
-    trial = optuna_study(save_dic=save_path,study_name=model_name,trial_num=1)
+    trial = optuna_study(save_dic=save_path,study_name=model_name,trial_num=30)
     
     dic_path = ''.join(['./model/',model_name,'/trial/trial_',str(trial.number),'.model'])
     args_path = ''.join(['./model/',model_name,'/trial/args_',str(trial.number),'.miarg'])
