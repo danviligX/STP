@@ -10,84 +10,96 @@ from clstp.utils import Args, data_divide, search_group_track_pos, stp_attention
 class sa_net(nn.Module):
     def __init__(self,args) -> None:
         super(sa_net,self).__init__()
-        self.embadding_size = args.embadding_size
-        self.pre_length = args.pre_length
-        self.hidden_size = args.hidden_size
-        self.rnn_type = 0
-        self.PoolingNet = stp_attention_pooling(args=args)
-        self.pre_mlp_hidden_size = args.pre_mlp_hidden_size
-        self.Pooling_per_step = 1
+        self.pre_length = 12
 
+        # position embadding
+        self.embadding_size = args.embadding_size
         self.embadding = nn.Linear(in_features=2,out_features=self.embadding_size)
-        
-        if self.rnn_type:
+
+        # RNN encode:
+        self.encoder_type = 1
+        self.hidden_size = args.hidden_size
+        self.PoolingNet = stp_attention_pooling(args=args)
+        if self.encoder_type:
             self.encoder = nn.LSTM(input_size=self.embadding_size,hidden_size=self.hidden_size)
-            self.decoder = nn.LSTM(input_size=self.embadding_size,hidden_size=self.hidden_size)
         else:
             self.encoder = nn.GRU(input_size=self.embadding_size,hidden_size=self.hidden_size)
-            self.decoder = nn.GRU(input_size=self.embadding_size,hidden_size=self.hidden_size)
         
-        self.deembadding = nn.Linear(in_features=self.hidden_size,out_features=2)
-        
-        dim_list = [self.hidden_size,self.pre_mlp_hidden_size,2]
-        self.pre_mlp = make_mlp(dim_list,batch_norm=False)
+        # temporal encode
+        self.te_hidden_size = args.te_hidden_size
+        self.emb2hidden = nn.Linear(in_features=2,out_features=self.hidden_size)
+        self.temporal_map = nn.Linear(in_features=8,out_features=self.te_hidden_size)
+        self.temporal_decoder = nn.Linear(in_features=self.te_hidden_size,out_features=1)
+
+        # RNN decoder:
+        self.decoder_type = 1
+        if self.decoder_type:
+            self.decoder = nn.LSTMCell(input_size=self.hidden_size*2,hidden_size=self.hidden_size)
+        else:
+            self.decoder = nn.GRUCell(input_size=self.hidden_size*2,hidden_size=self.hidden_size)
+
+        # de-embadding
+        self.deembadding = nn.Linear(in_features=2*self.hidden_size,out_features=2)
 
     def forward(self,group_track):
+        '''
+        input:
+            group_track
+        output:
+            new_group_track
+        '''
+        # temporal: encode + decoder -> speed_hidden, for speed
+        track = torch.clone(group_track[0]) # [2,embadding_size]
+        speed_hidden = self.sp_h_layer(track) # [1,emabadding_size]
 
-        group_hidden,group_state = self.group_encode(group_track)
-        group_state = self.social_poolingNet(group_hidden,group_state,group_track) # [batch,hidden_size]
+        # RNN encode + social attention -> rnn_hidden, for long time info
+        group_hidden = self.group_encode(group_track)
+        rnn_hidden = self.PoolingNet(group_hidden,group_track)
+        
+        cell_input = torch.concat((rnn_hidden[0].unsqueeze(0),speed_hidden),dim=1)
+        cell_state = self.decoder(cell_input)
 
-        if self.Pooling_per_step:
-            for _ in range(self.pre_length):
-                group_state,group_track = self.group_decode(group_state,group_track)
-                group_state = self.social_poolingNet(group_hidden,group_state,group_track)
+        if self.decoder_type:
+            for idx in range(self.pre_length):
+                pos = self.deembadding(torch.concat((cell_state[0],speed_hidden),dim=1))
+                track = torch.concat((track,pos),dim=0)
+                speed_hidden = self.sp_h_layer(track)
+                cell_input = torch.concat((cell_state[0],speed_hidden),dim=1)
+                cell_state = self.decoder(cell_input,cell_state)
+            
         else:
-            for _ in range(self.pre_length):
-                group_state,group_track = self.group_decode(group_state,group_track)
+            for idx in range(self.pre_length):
+                pos = self.deembadding(torch.concat((cell_state,speed_hidden),dim=1))
+                track = torch.concat((track,pos),dim=0)
+                speed_hidden = self.sp_h_layer(track)
+                cell_input = torch.concat((cell_state,speed_hidden),dim=1)
+                cell_state = self.decoder(cell_input,cell_state)
 
-        return group_track[0]
+        return track[8:]
     
-    def social_poolingNet(self,group_hidden,group_state,group_track):
-        group_hidden = self.PoolingNet(group_hidden,group_track)
-        GS = []
-        if self.rnn_type:
-            for idx in range(len(group_state)):
-                GS.append((group_hidden[idx],group_state[idx][1]))
-        else:
-            for idx in range(len(group_state)):
-                GS.append(group_hidden[idx])
-        return GS
+        # track = []
+        # for idx in range(self.pre_length):
+        #     hidden = torch.concat((rnn_hidden[0],speed_hidden[idx]),dim=0)
+        #     pos = self.deembadding(hidden) # [1,2]
+        #     track.append(pos)
 
+        # track = torch.stack(track,dim=0)
+        # return track
+
+    
+    def sp_h_layer(self,track):
+        return self.emb2hidden(self.temporal_decoder(self.temporal_map(track[-8:].transpose(0,1))).transpose(0,1))
+    
     def group_encode(self,group_track):
-        group_ST = []
         HS = []
         for track in group_track:
-            track_code,state_tuple = self.encoder(self.embadding(track))
+            track_embadding = self.embadding(track)
+            track_code,_ = self.encoder(track_embadding)
             hidden = track_code[-1]
-            group_ST.append(state_tuple)
             HS.append(hidden)
         hidden_state = torch.stack(HS,dim=0)
-        return hidden_state,group_ST
-    
-    def group_decode(self,group_state,group_track):
-        GS = []
-        GT = []
-        if self.rnn_type:
-            for idx in range(len(group_state)):
-                hidden,state_tuple = self.decoder(self.embadding(group_track[idx][-1].unsqueeze(0)),(group_state[idx][0],group_state[idx][1]))
-                pos = self.pre_mlp(hidden)
-                GT.append(torch.concat((group_track[idx],pos+group_track[idx][-1]),dim=0))
-                GS.append((group_state[idx][0].squeeze(),group_state[idx][1]))
-        else:
-            for idx in range(len(group_state)):
-                hidden,state_tuple = self.decoder(self.embadding(group_track[idx][-1].unsqueeze(0)),group_state[idx].unsqueeze(0))
-                pos = self.pre_mlp(hidden)
-                GT.append(torch.concat((group_track[idx],pos+group_track[idx][-1]),dim=0))
-                GS.append(state_tuple.squeeze())
+        return hidden_state
 
-        return GS,GT
-
-    
 def sa_obj(trial):
     args = Args()
 
@@ -101,9 +113,8 @@ def sa_obj(trial):
     args.model_name = 'SA'
     args.embadding_size = trial.suggest_int("embadding_size", 8, 128,step=8)
     args.hidden_size = trial.suggest_int("hidden_size", 32, 512,step=16)
-    args.pre_mlp_hidden_size = trial.suggest_int("pre_mlp_hidden_size", 32, 1024,step=32)
-    args.pre_length = 12
-
+    args.te_hidden_size = trial.suggest_int("te_hidden_size", 32, 512,step=16)
+    # soical attention MLPs
     args.rel_mlp_hidden_size = trial.suggest_int("rel_mlp_hidden_size", 8, 128,step=8)
     args.abs_mlp_hidden_size = trial.suggest_int("abs_mlp_hidden_size", 8, 128,step=8)
     args.attention_mlp_hidden_size = trial.suggest_int("attention_mlp_hidden_size", 8, 128,step=8)
@@ -112,8 +123,8 @@ def sa_obj(trial):
     args.opt = trial.suggest_categorical("optimizer", ["RMSprop", "SGD", "Adam"])
     args.lr = trial.suggest_float("learning_rate", 1e-5, 1e-1, log=True)
     args.batch_size = trial.suggest_int("batch_size", 4, 32,step=4)
-    # args.epoch_num = trial.suggest_int("epoch_num",5,200)
-    args.epoch_num = 3
+    args.epoch_num = trial.suggest_int("epoch_num",5,50)
+    # args.epoch_num = 3
 
     # data prepare
     train_valid_array = np.load('./data/meta/train_valid.npy')
@@ -159,7 +170,6 @@ def sa_obj(trial):
     torch.save(args,''.join(['./model/',args.model_name,'/trial/args_',str(trial.number),'.miarg']))
     return optuna_error
 
-
 def train(net,train_loader,criterion,optimizer,args,set_file_list):
     net.train()
     for _,batched_meta in enumerate(train_loader):
@@ -171,7 +181,7 @@ def train(net,train_loader,criterion,optimizer,args,set_file_list):
 
             # forward
             out = net(group_track_input)
-            loss = criterion(group_track_target[0][8:],out[8:])
+            loss = criterion(group_track_target[0][8:],out)
             # print(loss.item())
 
             loss.backward()
@@ -190,6 +200,7 @@ def valid(net,valid_loader,criterion,set_file_list,device):
             
             # forward
             out = net(group_track_input)
+
             loss = criterion(group_track_target[0][-1],out[-1])
 
             loss_tensor = torch.tensor([loss.item()])
@@ -211,6 +222,7 @@ def test(net,test_loader,criterion,set_file_list,device=torch.device('cpu')):
 
             # forward
             out = net(group_track_input)
+
             loss = criterion(group_track_target[0][-1],out[-1])
 
             error[item_idx,0] = meta_item[0].item()

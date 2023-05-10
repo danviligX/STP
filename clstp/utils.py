@@ -95,8 +95,7 @@ class stp_attention_pooling(nn.Module):
 
         self.softmax = nn.Softmax(dim=1)
     
-    def attention_matrix_line(self,hidden_state,group_track,center_idx_local):
-        if len(hidden_state) == 1: return hidden_state
+    def attention_weight(self,hidden_state,group_track,center_idx_local):
 
         # calculate relative end position
         center_pos_end = group_track[center_idx_local][-1]
@@ -130,16 +129,17 @@ class stp_attention_pooling(nn.Module):
         metrc_dis = self.attention_mlp(attention_fea).squeeze().unsqueeze(0) # [1,nei_num]
         metrc_dis = self.softmax(metrc_dis)
 
-        out = torch.matmul(metrc_dis,hidden_state) # [1,hidden_size]
-        return out
+        # out = torch.matmul(metrc_dis,hidden_state) # [1,hidden_size]
+        return metrc_dis
     
     def forward(self,hidden_state,group_track):
-        group_pooling_hidden = []
+        if len(hidden_state)==1: return hidden_state
+        group_weight = []
         for center_idx_local in range(len(group_track)):
-            pooling_hidden = self.attention_matrix_line(hidden_state,group_track,center_idx_local)
-            group_pooling_hidden.append(pooling_hidden)
-        GPH = torch.concat(group_pooling_hidden,dim=0)
-
+            weight = self.attention_weight(hidden_state,group_track,center_idx_local) # [1,batch]
+            group_weight.append(weight)
+        GW = torch.concat(group_weight,dim=0) # [batch,batch]
+        GPH = torch.matmul(GW,hidden_state) # [batch,hidden_size]
         return GPH
     
 def data_preprocess(
