@@ -16,9 +16,10 @@ class sa_net(nn.Module):
         self.rnn_type = 0
         self.PoolingNet = stp_attention_pooling(args=args)
         self.pre_mlp_hidden_size = args.pre_mlp_hidden_size
-        self.Pooling_per_step = 0
+        self.Pooling_per_step = 1
 
         self.embadding = nn.Linear(in_features=2,out_features=self.embadding_size)
+        
         if self.rnn_type:
             self.encoder = nn.LSTM(input_size=self.embadding_size,hidden_size=self.hidden_size)
             self.decoder = nn.LSTM(input_size=self.embadding_size,hidden_size=self.hidden_size)
@@ -75,13 +76,13 @@ class sa_net(nn.Module):
             for idx in range(len(group_state)):
                 hidden,state_tuple = self.decoder(self.embadding(group_track[idx][-1].unsqueeze(0)),(group_state[idx][0],group_state[idx][1]))
                 pos = self.pre_mlp(hidden)
-                GT.append(torch.concat((group_track[idx],pos),dim=0))
+                GT.append(torch.concat((group_track[idx],pos+group_track[idx][-1]),dim=0))
                 GS.append((group_state[idx][0].squeeze(),group_state[idx][1]))
         else:
             for idx in range(len(group_state)):
                 hidden,state_tuple = self.decoder(self.embadding(group_track[idx][-1].unsqueeze(0)),group_state[idx].unsqueeze(0))
                 pos = self.pre_mlp(hidden)
-                GT.append(torch.concat((group_track[idx],pos),dim=0))
+                GT.append(torch.concat((group_track[idx],pos+group_track[idx][-1]),dim=0))
                 GS.append(state_tuple.squeeze())
 
         return GS,GT
@@ -139,9 +140,9 @@ def sa_obj(trial):
                     optimizer=opt,args=args,set_file_list=set_file_list)
 
         epoch_error,_ = valid(net,valid_loader,criterion,set_file_list,device=args.device)
-        
+        print('trial:{}, epoch:{}, loss:{}'.format(trial.number,epoch,epoch_error.item()))
+
         if epoch%5==0:
-            print('trial:{}, epoch:{}, loss:{}'.format(trial.number,epoch,epoch_error.item()))
             if ESS == epoch_error.item(): raise optuna.exceptions.TrialPruned()
             ESS = epoch_error.item()
 

@@ -7,38 +7,36 @@ from clstp.dataio import read_set_file, stp_dataloader
 from clstp.utils import Args, data_divide, search_group_track_pos
 
 
-class grrms_net(nn.Module):
+class linearrms_net(nn.Module):
     def __init__(self,args) -> None:
-        super(grrms_net,self).__init__()
+        super(linearrms_net,self).__init__()
         self.embadding_size = args.embadding_size
         self.pre_length = args.pre_length
-        self.hidden_size = args.hidden_size
-        self.rnn_type = 0
 
         self.embadding = nn.Linear(in_features=2,out_features=self.embadding_size)
-        if self.rnn_type:
-            self.rnn = nn.LSTM(input_size=self.embadding_size,hidden_size=self.hidden_size)
-        else:
-            self.rnn = nn.GRU(input_size=self.embadding_size,hidden_size=self.hidden_size)
-        
-        self.deembadding = nn.Linear(in_features=self.hidden_size,out_features=2)
+        self.linear = nn.Linear(in_features=8,out_features=128)
+        self.linear2 = nn.Linear(in_features=128,out_features=1)
+        self.deembadding = nn.Linear(in_features=self.embadding_size,out_features=2)
     
     def forward(self,his_track):
         seq = self.embadding(his_track)
-        out,_ = self.rnn(seq)
-        pos = self.deembadding(out[-1])
-        return pos
+        # seq = his_track
+        seq = seq.transpose(0,1)
+        seq = self.linear(seq)
+        seq = self.linear2(seq)
+        out = seq.transpose(0,1)
+        out = self.deembadding(out)
+        return out+his_track[-1]
     
     # def forward(self,his_track):
-    #     T = his_track
-    #     out = torch.clone(his_track)
+    #     track = torch.clone(his_track)
     #     for _ in range(self.pre_length):
-    #         pos = self.pre_once_pos(T)
-    #         T = torch.concat((T,pos.unsqueeze(0)),dim=0)[1:]
-    #         out = torch.concat((out,pos.unsqueeze(0)),dim=0)
-    #     return out
-    
-def grrms_obj(trial):
+    #         pos = self.pre_once_pos(his_track)
+    #         his_track = torch.concat((his_track[1:],pos),dim=0)
+    #         track = torch.concat((track,pos),dim=0)
+    #     return track[8:]
+
+def linerrms_obj(trial):
     args = Args()
 
     # cuda
@@ -48,23 +46,22 @@ def grrms_obj(trial):
         args.device = torch.device("cpu")
 
     # net initialization parameters
-    args.model_name = 'GRRMS'
     args.embadding_size = trial.suggest_int("embadding_size", 8, 128,step=8)
-    args.hidden_size = trial.suggest_int("hidden_size", 32, 512,step=16)
     args.pre_length = 12
 
     # hyperparameters selection with optuna
     args.opt = trial.suggest_categorical("optimizer", ["RMSprop", "SGD", "Adam"])
     args.lr = trial.suggest_float("learning_rate", 1e-5, 1e-1, log=True)
     args.batch_size = trial.suggest_int("batch_size", 4, 32,step=4)
-    args.epoch_num = trial.suggest_int("epoch_num",5,200)
+    # args.epoch_num = trial.suggest_int("epoch_num",5,30)
+    args.epoch_num = 10
 
     # data prepare
     train_valid_array = np.load('./data/meta/train_valid.npy')
     train_validation_idx = data_divide(train_valid_array,para=10)
     set_file_list = read_set_file()
 
-    net = grrms_net(args=args).to(device=args.device)
+    net = linearrms_net(args=args).to(device=args.device)
     opt = getattr(torch.optim, args.opt)(net.parameters(), lr=args.lr)
     criterion = nn.MSELoss()
 
@@ -85,7 +82,6 @@ def grrms_obj(trial):
 
         epoch_error,_ = valid(net,valid_loader,criterion,set_file_list,device=args.device)
         print('trial:{}, epoch:{}, loss:{}'.format(trial.number,epoch,epoch_error.item()))
-        
         if epoch%5==0:
             if ESS == epoch_error.item(): raise optuna.exceptions.TrialPruned()
             ESS = epoch_error.item()
@@ -99,10 +95,9 @@ def grrms_obj(trial):
 
     optuna_error = valid_error.mean()
 
-    torch.save(net.state_dict(),''.join(['./model/',args.model_name,'/trial/trial_',str(trial.number),'.model']))
-    torch.save(args,''.join(['./model/',args.model_name,'/trial/args_',str(trial.number),'.miarg']))
+    torch.save(net.state_dict(),'./model/LinearRMS/trial/trial_{}.model'.format(trial.number))
+    torch.save(args,'./model/LinearRMS/trial/args_{}.miarg'.format(trial.number))
     return optuna_error
-
 
 def train(net,train_loader,criterion,optimizer,args,set_file_list):
     net.train()
@@ -114,7 +109,7 @@ def train(net,train_loader,criterion,optimizer,args,set_file_list):
 
             # forward
             out = net(group_track_target[0][:8])
-            loss = criterion(group_track_target[0][9],out)
+            loss = criterion(group_track_target[0][9],out.squeeze(0))
 
             loss.backward()
         optimizer.step()
@@ -129,7 +124,7 @@ def valid(net,valid_loader,criterion,set_file_list,device):
             set_file = set_file_list[meta_item[0].item()]
             group_track_target = search_group_track_pos(meta_item,set_file,fram_num=20,device=device)
             
-            # forward
+            # # forward
             # out = net(group_track_target[0][:8])
             # loss = criterion(group_track_target[0][-1],out[-1])
 
@@ -137,7 +132,8 @@ def valid(net,valid_loader,criterion,set_file_list,device):
             for idx in range(12):
                 input_track = group_track_target[0][idx:idx+8]
                 out = net(input_track)
-                pre_his = torch.concat((pre_his,out.unsqueeze(0)),dim=0)
+                pre_his = torch.concat((pre_his,out),dim=0)
+
             loss = criterion(group_track_target[0][-1],pre_his[-1])
 
             loss_tensor = torch.tensor([loss.item()])
@@ -164,7 +160,8 @@ def test(net,test_loader,criterion,set_file_list,device=torch.device('cpu')):
             for idx in range(12):
                 input_track = group_track_target[0][idx:idx+8]
                 out = net(input_track)
-                pre_his = torch.concat((pre_his,out.unsqueeze(0)),dim=0)
+                pre_his = torch.concat((pre_his,out),dim=0)
+                
             loss = criterion(group_track_target[0][-1],pre_his[-1])
 
             error[item_idx,0] = meta_item[0].item()

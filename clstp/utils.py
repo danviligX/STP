@@ -29,11 +29,15 @@ class stp_poolingnet(nn.Module):
         self.hidden_size = args.hidden_size
         self.embdding_size = args.embadding_size
         self.mlp_hidden_size = args.PNMLP_hidden_size
+        self.cell_mlp_hidden_size = 32
         
         self.embadding = nn.Linear(in_features=2,out_features=self.embdding_size)
 
         dim_list = [self.embdding_size+self.hidden_size,self.mlp_hidden_size,self.hidden_size]
         self.mlp = make_mlp(dim_list,batch_norm=False)
+
+        cell_mlp_dim = [self.embdding_size*2,self.cell_mlp_hidden_size,32]
+        self.cell_mlp = make_mlp(cell_mlp_dim,batch_norm=False)
     
     def pooling_one(self,hidden_state,group_track,center_idx_local):
         # calculate relative end position
@@ -54,7 +58,9 @@ class stp_poolingnet(nn.Module):
         group_pooling_hidden = []
         for center_idx_local in range(len(group_track)):
             pooling_hidden = self.pooling_one(hidden_state,group_track,center_idx_local)
-            group_pooling_hidden.append(pooling_hidden)
+            hidden = torch.concat((hidden_state[center_idx_local],pooling_hidden),dim=0)
+            hidden = self.cell_mlp(hidden)
+            group_pooling_hidden.append(hidden)
         GPH = torch.stack(group_pooling_hidden,dim=0)
 
         return GPH

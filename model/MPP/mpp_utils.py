@@ -54,7 +54,7 @@ class mpp_net(nn.Module):
 
             T = []
             for idx,track in enumerate(group_track):
-                track = torch.concat((track,pos[idx].unsqueeze(0)),dim=0)
+                track = torch.concat((track,track[-1]+pos[idx].unsqueeze(0)),dim=0)
                 T.append(track)
             group_track = T
 
@@ -182,8 +182,8 @@ def mpp_obj(trial):
     args.opt = trial.suggest_categorical("optimizer", ["RMSprop", "SGD", "Adam"])
     args.lr = trial.suggest_float("learning_rate", 1e-5, 1e-1, log=True)
     args.batch_size = trial.suggest_int("batch_size", 4, 32,step=4)
-    args.epoch_num = trial.suggest_int("epoch_num",5,200)
-    # args.epoch_num = 3
+    # args.epoch_num = trial.suggest_int("epoch_num",5,200)
+    args.epoch_num = 3
 
     # data prepare
     train_valid_array = np.load('./data/meta/train_valid.npy')
@@ -210,9 +210,9 @@ def mpp_obj(trial):
                     optimizer=opt,args=args,set_file_list=set_file_list)
 
         epoch_error,_ = valid(net,valid_loader,criterion,set_file_list,device=args.device)
-        
-        if epoch%5==0:
-            print('trial:{}, epoch:{}, loss:{}'.format(trial.number,epoch,epoch_error.item()))
+        print('trial:{}, epoch:{}, loss:{}'.format(trial.number,epoch,epoch_error.item()))
+
+        if epoch%5==0:    
             if ESS == epoch_error.item(): raise optuna.exceptions.TrialPruned()
             ESS = epoch_error.item()
 

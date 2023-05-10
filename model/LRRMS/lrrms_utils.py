@@ -23,20 +23,20 @@ class lrrms_net(nn.Module):
         
         self.deembadding = nn.Linear(in_features=self.hidden_size,out_features=2)
     
-    def pre_once_pos(self,his_track):
+    def forward(self,his_track):
         seq = self.embadding(his_track)
         out,_ = self.rnn(seq)
         pos = self.deembadding(out[-1])
         return pos
     
-    def forward(self,his_track):
-        T = his_track
-        out = torch.clone(his_track)
-        for _ in range(self.pre_length):
-            pos = self.pre_once_pos(T)
-            T = torch.concat((T,pos.unsqueeze(0)),dim=0)[1:]
-            out = torch.concat((out,pos.unsqueeze(0)),dim=0)
-        return out
+    # def forward(self,his_track):
+    #     T = his_track
+    #     out = torch.clone(his_track)
+    #     for _ in range(self.pre_length):
+    #         pos = self.pre_once_pos(T)
+    #         T = torch.concat((T,pos.unsqueeze(0)),dim=0)[1:]
+    #         out = torch.concat((out,pos.unsqueeze(0)),dim=0)
+    #     return out
     
 def lrrms_obj(trial):
     args = Args()
@@ -57,7 +57,8 @@ def lrrms_obj(trial):
     args.opt = trial.suggest_categorical("optimizer", ["RMSprop", "SGD", "Adam"])
     args.lr = trial.suggest_float("learning_rate", 1e-5, 1e-1, log=True)
     args.batch_size = trial.suggest_int("batch_size", 4, 32,step=4)
-    args.epoch_num = trial.suggest_int("epoch_num",5,200)
+    # args.epoch_num = trial.suggest_int("epoch_num",5,30)
+    args.epoch_num = 3
 
     # data prepare
     train_valid_array = np.load('./data/meta/train_valid.npy')
@@ -84,9 +85,8 @@ def lrrms_obj(trial):
                     optimizer=opt,args=args,set_file_list=set_file_list)
 
         epoch_error,_ = valid(net,valid_loader,criterion,set_file_list,device=args.device)
-        
+        print('trial:{}, epoch:{}, loss:{}'.format(trial.number,epoch,epoch_error.item()))
         if epoch%5==0:
-            print('trial:{}, epoch:{}, loss:{}'.format(trial.number,epoch,epoch_error.item()))
             if ESS == epoch_error.item(): raise optuna.exceptions.TrialPruned()
             ESS = epoch_error.item()
 
@@ -114,7 +114,7 @@ def train(net,train_loader,criterion,optimizer,args,set_file_list):
 
             # forward
             out = net(group_track_target[0][:8])
-            loss = criterion(group_track_target[0][8:],out[8:])
+            loss = criterion(group_track_target[0][9],out)
             loss.backward()
         optimizer.step()
     return net
@@ -128,9 +128,16 @@ def valid(net,valid_loader,criterion,set_file_list,device):
             set_file = set_file_list[meta_item[0].item()]
             group_track_target = search_group_track_pos(meta_item,set_file,fram_num=20,device=device)
             
-            # forward
-            out = net(group_track_target[0][:8])
-            loss = criterion(group_track_target[0][-1],out[-1])
+            # # forward
+            # out = net(group_track_target[0][:8])
+            # loss = criterion(group_track_target[0][-1],out[-1])
+
+            pre_his = torch.clone(group_track_target[0][:8])
+            for idx in range(12):
+                input_track = group_track_target[0][idx:idx+8]
+                out = net(input_track)
+                pre_his = torch.concat((pre_his,out.unsqueeze(0)),dim=0)
+            loss = criterion(group_track_target[0][-1],pre_his[-1])
 
             loss_tensor = torch.tensor([loss.item()])
             error = torch.concat((loss_tensor,error))
@@ -149,8 +156,16 @@ def test(net,test_loader,criterion,set_file_list,device=torch.device('cpu')):
             group_track_target = search_group_track_pos(meta_item,set_file,fram_num=20,device=device)
 
             # forward
-            out = net(group_track_target[0][:8])
-            loss = criterion(group_track_target[0][-1],out[-1])
+            # out = net(group_track_target[0][:8])
+            # loss = criterion(group_track_target[0][-1],out[-1])
+
+            pre_his = torch.clone(group_track_target[0][:8])
+            for idx in range(12):
+                input_track = group_track_target[0][idx:idx+8]
+                out = net(input_track)
+                pre_his = torch.concat((pre_his,out.unsqueeze(0)),dim=0)
+                
+            loss = criterion(group_track_target[0][-1],pre_his[-1])
 
             error[item_idx,0] = meta_item[0].item()
             error[item_idx,1] = loss
