@@ -15,7 +15,7 @@ class mpp_net(nn.Module):
         self.hidden_size = args.hidden_size
         self.max_nei_dis = 5
         self.input_len = 8
-        self.rnn_type = 0
+        self.rnn_type = 1
 
         self.embadding = nn.Linear(in_features=2,out_features=self.embadding_size)
 
