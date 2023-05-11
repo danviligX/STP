@@ -17,16 +17,18 @@ class linear_net(nn.Module):
         self.embadding = nn.Linear(in_features=2,out_features=self.embadding_size)
 
         dim_list = [8,self.hidden_size,self.pre_length]
-        self.mlp = make_mlp(dim_list)
+        self.mlp = make_mlp(dim_list,batch_norm=True)
 
+        self.linear = nn.Linear(in_features=8,out_features=12)
         self.deembadding = nn.Linear(in_features=self.embadding_size,out_features=2)
     
     def forward(self,his_track):
-        seq = self.embadding(his_track)
+        # seq = self.embadding(his_track)
+        # seq = his_track
         seq = seq.transpose(0,1)
-        seq = self.mlp(seq)
+        seq = self.linear(seq)
         out = seq.transpose(0,1)
-        out = self.deembadding(out)
+        # out = self.deembadding(out)
         return out
 
 def linear_obj(trial):
@@ -39,7 +41,7 @@ def linear_obj(trial):
         args.device = torch.device("cpu")
 
     # net initialization parameters
-    args.model_name = 'MLP'
+    args.model_name = 'Linear'
     args.embadding_size = trial.suggest_int("embadding_size", 8, 128,step=8)
     args.hidden_size = trial.suggest_int("hidden_size", 32, 512,step=16)
     args.pre_length = 12
@@ -48,7 +50,8 @@ def linear_obj(trial):
     args.opt = trial.suggest_categorical("optimizer", ["RMSprop", "SGD", "Adam"])
     args.lr = trial.suggest_float("learning_rate", 1e-5, 1e-1, log=True)
     args.batch_size = trial.suggest_int("batch_size", 4, 32,step=4)
-    args.epoch_num = trial.suggest_int("epoch_num",5,200)
+    # args.epoch_num = trial.suggest_int("epoch_num",5,50)
+    args.epoch_num = 10
 
     # data prepare
     train_valid_array = np.load('./data/meta/train_valid.npy')
@@ -75,9 +78,9 @@ def linear_obj(trial):
                     optimizer=opt,args=args,set_file_list=set_file_list)
 
         epoch_error,_ = valid(net,valid_loader,criterion,set_file_list,device=args.device)
+        print('trial:{}, epoch:{}, loss:{}'.format(trial.number,epoch,epoch_error.item()))
         
         if epoch%5==0:
-            print('trial:{}, epoch:{}, loss:{}'.format(trial.number,epoch,epoch_error.item()))
             if ESS == epoch_error.item(): raise optuna.exceptions.TrialPruned()
             ESS = epoch_error.item()
 

@@ -10,10 +10,10 @@ from model.Linear.linear_utils import linear_obj,linear_net,test
 from clstp.dataio import stp_dataloader,read_set_file
 
 def main():
-    model_name = 'MLP'
+    model_name = 'Linear'
     save_path = ''.join(['./model/',model_name,'/',model_name,'_study.pkl'])
 
-    trial = optuna_study(save_dic=save_path,study_name=model_name,trial_num=3)
+    trial = optuna_study(save_dic=save_path,study_name=model_name,trial_num=10)
     
     dic_path = ''.join(['./model/',model_name,'/trial/trial_',str(trial.number),'.model'])
     args_path = ''.join(['./model/',model_name,'/trial/args_',str(trial.number),'.miarg'])
