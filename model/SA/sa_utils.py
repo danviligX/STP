@@ -11,6 +11,7 @@ class sa_net(nn.Module):
     def __init__(self,args) -> None:
         super(sa_net,self).__init__()
         self.pre_length = 12
+        self.Pooling_per_step = 1
 
         # position embadding
         self.embadding_size = args.embadding_size
@@ -42,12 +43,6 @@ class sa_net(nn.Module):
         self.deembadding = nn.Linear(in_features=2*self.hidden_size,out_features=2)
 
     def forward(self,group_track):
-        '''
-        input:
-            group_track
-        output:
-            new_group_track
-        '''
         # temporal: encode + decoder -> speed_hidden, for speed
         track = torch.clone(group_track[0]) # [2,embadding_size]
         speed_hidden = self.sp_h_layer(track) # [1,emabadding_size]
@@ -59,21 +54,49 @@ class sa_net(nn.Module):
         cell_input = torch.concat((rnn_hidden[0].unsqueeze(0),speed_hidden),dim=1)
         cell_state = self.decoder(cell_input)
 
-        if self.decoder_type:
-            for idx in range(self.pre_length):
-                pos = self.deembadding(torch.concat((cell_state[0],speed_hidden),dim=1))
-                track = torch.concat((track,pos),dim=0)
-                speed_hidden = self.sp_h_layer(track)
-                cell_input = torch.concat((cell_state[0],speed_hidden),dim=1)
-                cell_state = self.decoder(cell_input,cell_state)
-            
-        else:
-            for idx in range(self.pre_length):
-                pos = self.deembadding(torch.concat((cell_state,speed_hidden),dim=1))
-                track = torch.concat((track,pos),dim=0)
-                speed_hidden = self.sp_h_layer(track)
-                cell_input = torch.concat((cell_state,speed_hidden),dim=1)
-                cell_state = self.decoder(cell_input,cell_state)
+        for idx in range(self.pre_length):
+                    pos = self.deembadding(torch.concat((cell_state[0],speed_hidden),dim=1))
+                    track = torch.concat((track,track[-1]+pos),dim=0)
+                    speed_hidden = self.sp_h_layer(track)
+                    cell_input = torch.concat((cell_state[0],speed_hidden),dim=1)
+                    cell_state = self.decoder(cell_input,cell_state)
+                    rnn_hidden = self.PoolingNet(cell_state[0],track)
+                    cell_state = [rnn_hidden,cell_state[1]]
+
+        # if self.decoder_type:
+        #     if self.Pooling_per_step == 1:
+        #         for idx in range(self.pre_length):
+        #             pos = self.deembadding(torch.concat((cell_state[0],speed_hidden,rnn_speed_hidden),dim=1))
+        #             track = torch.concat((track,track[-1]+pos),dim=0)
+        #             speed_hidden = self.sp_h_layer(track)
+        #             cell_input = torch.concat((cell_state[0],speed_hidden),dim=1)
+        #             cell_state = self.decoder(cell_input,cell_state)
+        #             rnn_hidden = self.PoolingNet(cell_state[0],track)
+        #             cell_state = [rnn_hidden,cell_state[1]]
+        #     else:
+        #         for idx in range(self.pre_length):
+        #             pos = self.deembadding(torch.concat((cell_state[0],speed_hidden,rnn_speed_hidden),dim=1))
+        #             track = torch.concat((track,track,track[-1]+pos),dim=0)
+        #             speed_hidden = self.sp_h_layer(track)
+        #             cell_input = torch.concat((cell_state[0],speed_hidden),dim=1)
+        #             cell_state = self.decoder(cell_input,cell_state)
+        # else:
+        #     if self.Pooling_per_step == 1:
+        #         for idx in range(self.pre_length):
+        #             pos = self.deembadding(torch.concat((cell_state,speed_hidden,rnn_speed_hidden),dim=1))
+        #             track = torch.concat((track,track,track[-1]+pos),dim=0)
+        #             speed_hidden = self.sp_h_layer(track)
+        #             cell_input = torch.concat((cell_state,speed_hidden),dim=1)
+        #             cell_state = self.decoder(cell_input,cell_state)
+        #             rnn_hidden = self.PoolingNet(cell_state,track)
+        #             cell_state = rnn_hidden
+        #     else:
+        #         for idx in range(self.pre_length):
+        #             pos = self.deembadding(torch.concat((cell_state,speed_hidden,rnn_speed_hidden),dim=1))
+        #             track = torch.concat((track,track,track[-1]+pos),dim=0)
+        #             speed_hidden = self.sp_h_layer(track)
+        #             cell_input = torch.concat((cell_state,speed_hidden),dim=1)
+        #             cell_state = self.decoder(cell_input,cell_state)
 
         return track[8:]
     
@@ -88,7 +111,8 @@ class sa_net(nn.Module):
 
     
     def sp_h_layer(self,track):
-        return self.emb2hidden(self.temporal_decoder(self.temporal_map(track[-8:].transpose(0,1))).transpose(0,1))
+        # return self.temporal_decoder(self.emb2hidden(track[-8:]).transpose(0,1)).transpose(0,1)
+        return self.temporal_decoder(self.temporal_map(self.emb2hidden(track[-8:]).transpose(0,1))).transpose(0,1)
     
     def group_encode(self,group_track):
         HS = []
