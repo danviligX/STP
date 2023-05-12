@@ -13,7 +13,7 @@ class grims_net(nn.Module):
         self.embadding_size = args.embadding_size
         self.pre_length = args.pre_length
         self.hidden_size = args.hidden_size
-        self.rnn_type = 0
+        self.rnn_type = 1
 
         self.embadding = nn.Linear(in_features=2,out_features=self.embadding_size)
         if self.rnn_type:

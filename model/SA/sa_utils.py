@@ -28,9 +28,18 @@ class sa_net(nn.Module):
         
         # temporal encode
         self.te_hidden_size = args.te_hidden_size
-        self.emb2hidden = nn.Linear(in_features=2,out_features=self.hidden_size)
-        self.temporal_map = nn.Linear(in_features=8,out_features=self.te_hidden_size)
-        self.temporal_decoder = nn.Linear(in_features=self.te_hidden_size,out_features=1)
+        self.temproal_mlp_size = args.temproal_mlp_size
+        emb2hidden_list = [2,self.temproal_mlp_size,self.hidden_size]
+        temporal_map_list = [8,self.temproal_mlp_size,self.te_hidden_size]
+        temporal_decoder_list = [self.te_hidden_size,self.temproal_mlp_size,1]
+
+        self.emb2hidden = make_mlp(emb2hidden_list,batch_norm=False)
+        self.temporal_map = make_mlp(temporal_map_list,batch_norm=False)
+        self.temporal_decoder = make_mlp(temporal_decoder_list,batch_norm=False)
+
+        # self.emb2hidden = nn.Linear(in_features=2,out_features=self.hidden_size)
+        # self.temporal_map = nn.Linear(in_features=8,out_features=self.te_hidden_size)
+        # self.temporal_decoder = nn.Linear(in_features=self.te_hidden_size,out_features=1)
 
         # RNN decoder:
         self.decoder_type = 1
@@ -56,7 +65,7 @@ class sa_net(nn.Module):
 
         for idx in range(self.pre_length):
                     pos = self.deembadding(torch.concat((cell_state[0],speed_hidden),dim=1))
-                    track = torch.concat((track,track[-1]+pos),dim=0)
+                    track = torch.concat((track,pos),dim=0)
                     speed_hidden = self.sp_h_layer(track)
                     cell_input = torch.concat((cell_state[0],speed_hidden),dim=1)
                     cell_state = self.decoder(cell_input,cell_state)
@@ -138,6 +147,8 @@ def sa_obj(trial):
     args.embadding_size = trial.suggest_int("embadding_size", 8, 128,step=8)
     args.hidden_size = trial.suggest_int("hidden_size", 32, 512,step=16)
     args.te_hidden_size = trial.suggest_int("te_hidden_size", 32, 512,step=16)
+    args.temproal_mlp_size = trial.suggest_int("temproal_mlp_size", 32, 512,step=16)
+
     # soical attention MLPs
     args.rel_mlp_hidden_size = trial.suggest_int("rel_mlp_hidden_size", 8, 128,step=8)
     args.abs_mlp_hidden_size = trial.suggest_int("abs_mlp_hidden_size", 8, 128,step=8)
