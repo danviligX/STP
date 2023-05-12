@@ -24,7 +24,7 @@ class linear_net(nn.Module):
     
     def forward(self,his_track):
         # seq = self.embadding(his_track)
-        # seq = his_track
+        seq = his_track
         seq = seq.transpose(0,1)
         seq = self.linear(seq)
         out = seq.transpose(0,1)
