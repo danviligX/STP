@@ -54,7 +54,7 @@ class mpp_net(nn.Module):
 
             T = []
             for idx,track in enumerate(group_track):
-                track = torch.concat((track,track[-1]+pos[idx].unsqueeze(0)),dim=0)
+                track = torch.concat((track,pos[idx].unsqueeze(0)),dim=0)
                 T.append(track)
             group_track = T
 
@@ -159,6 +159,7 @@ class mpp_net(nn.Module):
             rel_pos = track[-1] - center_pos
             rel_dis = torch.norm(rel_pos).item()
             if rel_dis < self.max_nei_dis: SH.append(hidden[idx])
+        if SH == []: return hidden
         S_hidden = torch.stack(SH,dim=0)
 
         return S_hidden.sum(dim=0).unsqueeze(0)
@@ -268,7 +269,7 @@ def valid(net,valid_loader,criterion,set_file_list,device):
     
     return torch.tensor([epoch_error]),epoch_error_std
 
-def test(net,test_loader,criterion,set_file_list,device=torch.device('cpu')):
+def test(net,test_loader,criterion,set_file_list,device=torch.device('cpu')): 
     test_length = len(test_loader)
     error = torch.zeros(test_length,2)
     with torch.no_grad():
