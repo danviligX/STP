@@ -1,1 +1,1 @@
-nohup python scripts/option_LRRMS.py > LRRMS.log 2>&1 &
+nohup python scripts/option_TDGAT.py > ./logs/TDGAT.log 2>&1 &

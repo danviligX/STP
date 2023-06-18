@@ -6,9 +6,9 @@ import torch.nn as nn
 from clstp.dataio import read_set_file, stp_dataloader
 from clstp.utils import Args, data_divide, search_group_track_pos
 
-class mpp_net(nn.Module):
+class slstm_net(nn.Module):
     def __init__(self,args) -> None:
-        super(mpp_net,self).__init__()
+        super(slstm_net,self).__init__()
         self.args = args
         self.embadding_size = args.embadding_size
         self.pre_length = args.pre_length
@@ -164,7 +164,7 @@ class mpp_net(nn.Module):
 
         return S_hidden.sum(dim=0).unsqueeze(0)
     
-def mpp_obj(trial):
+def slstm_obj(trial):
     args = Args()
 
     # cuda
@@ -174,7 +174,7 @@ def mpp_obj(trial):
         args.device = torch.device("cpu")
 
     # net initialization parameters
-    args.model_name = 'MPP'
+    args.model_name = 'SLSTM'
     args.embadding_size = trial.suggest_int("embadding_size", 8, 128,step=8)
     args.hidden_size = trial.suggest_int("hidden_size", 32, 512,step=16)
     args.pre_length = 12
@@ -191,7 +191,7 @@ def mpp_obj(trial):
     train_validation_idx = data_divide(train_valid_array,para=10)
     set_file_list = read_set_file()
 
-    net = mpp_net(args=args).to(device=args.device)
+    net = slstm_net(args=args).to(device=args.device)
     opt = getattr(torch.optim, args.opt)(net.parameters(), lr=args.lr)
     criterion = nn.MSELoss()
 

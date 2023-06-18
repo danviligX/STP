@@ -7,9 +7,9 @@ from clstp.dataio import read_set_file, stp_dataloader
 from clstp.utils import Args, data_divide, search_group_track_pos, stp_attention_pooling, make_mlp
 
 
-class sa_net(nn.Module):
+class tdgat_net(nn.Module):
     def __init__(self,args) -> None:
-        super(sa_net,self).__init__()
+        super(tdgat_net,self).__init__()
         self.pre_length = 12
         self.Pooling_per_step = 1
         
@@ -107,7 +107,7 @@ class sa_net(nn.Module):
         hidden_state = torch.stack(HS,dim=0)
         return hidden_state
 
-def sa_obj(trial):
+def tdgat_obj(trial):
     args = Args()
 
     # cuda
@@ -117,7 +117,7 @@ def sa_obj(trial):
         args.device = torch.device("cpu")
 
     # net initialization parameters
-    args.model_name = 'SA'
+    args.model_name = 'TDGAT'
     args.embadding_size = trial.suggest_int("embadding_size", 8, 128,step=8)
     args.hidden_size = trial.suggest_int("hidden_size", 32, 512,step=16)
     args.te_hidden_size = trial.suggest_int("te_hidden_size", 32, 512,step=16)
@@ -140,7 +140,7 @@ def sa_obj(trial):
     train_validation_idx = data_divide(train_valid_array,para=10)
     set_file_list = read_set_file()
 
-    net = sa_net(args=args).to(device=args.device)
+    net = tdgat_net(args=args).to(device=args.device)
     opt = getattr(torch.optim, args.opt)(net.parameters(), lr=args.lr)
     criterion = nn.MSELoss()
 

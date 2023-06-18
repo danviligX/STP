@@ -6,11 +6,11 @@ import torch
 import numpy as np
 import pickle
 import torch.nn as nn
-from model.SA.sa_utils import sa_net,sa_obj,test
+from model.TDGAT.tdgat_utils import tdgat_net,tdgat_obj,test
 from clstp.dataio import stp_dataloader,read_set_file
 
 def main():
-    model_name = 'SA'
+    model_name = 'TDGAT'
     save_path = ''.join(['./model/',model_name,'/',model_name,'_study.pkl'])
 
     trial = optuna_study(save_dic=save_path,study_name=model_name,trial_num=5)
@@ -23,7 +23,7 @@ def main():
 
 def optuna_study(save_dic='./study.pkl',trial_num=5,study_name='study'):
     study = optuna.create_study(direction='minimize',study_name=study_name)
-    study.optimize(sa_obj,n_trials=trial_num)
+    study.optimize(tdgat_obj,n_trials=trial_num)
     with open(save_dic,'wb') as path:
         pickle.dump(study,path)
         path.close()
@@ -34,7 +34,7 @@ def model_eval(args_dic,net_dic,test_data_path='./data/meta/test_array.npy'):
     args = torch.load(args_dic)
     net_state = torch.load(net_dic)
     
-    net = sa_net(args=args).to(args.device)
+    net = tdgat_net(args=args).to(args.device)
     net.load_state_dict(net_state)
 
     criterion = nn.MSELoss()
